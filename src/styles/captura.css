@@ -189,4 +189,25 @@
 .bs-hidden-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .bs-banner { background: var(--alert); color: var(--paper); font-size: 13px; padding: 12px 20px; text-align: center; }
 
+/* ---- identidad del agente (pantalla de PIN, fase 1) ---- */
+.bs-quien {
+  font-family: 'Roboto Mono', monospace; font-size: 10.5px; letter-spacing: .06em;
+  color: rgba(243,244,241,.6); margin: 8px 0 0; display: flex; align-items: center; gap: 8px;
+}
+.bs-quien-btn {
+  font-family: 'Roboto Mono', monospace; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; background: none; border: none;
+  border-bottom: 1px solid rgba(216,240,69,.5); color: var(--hivis);
+  padding: 0 0 1px; cursor: pointer;
+}
+.bs-quien-btn:focus-visible { outline: 2px solid var(--hivis); outline-offset: 2px; }
+
+.bs-pin { display: flex; gap: 10px; }
+.bs-pin-box {
+  width: 56px; height: 64px; text-align: center; font-family: 'Roboto Mono', monospace;
+  font-size: 26px; background: var(--paper); border: 1px solid var(--line);
+  border-radius: 2px; color: var(--ink);
+}
+.bs-pin-box:focus { outline: 2px solid var(--petrol); outline-offset: 1px; border-color: var(--petrol); }
+
 @media (prefers-reduced-motion: reduce) { .bs-dot.is-live, .bs-spin { animation: none; } }

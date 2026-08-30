@@ -1,0 +1,20 @@
+{
+  "name": "La Misión — Agentes de Campo",
+  "short_name": "La Misión",
+  "description": "Captura de exhibición en punto de venta. Funciona sin señal.",
+  "start_url": "/captura",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E6E8E3",
+  "theme_color": "#123B3A",
+  "lang": "es-MX",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    }
+  ]
+}

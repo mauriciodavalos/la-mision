@@ -10,6 +10,10 @@ import "../styles/captura.css";
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#123B3A" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Captura de exhibiciones — La Misión</title>
   </head>
   <body>
@@ -17,6 +21,15 @@ import "../styles/captura.css";
     <script>
       import { init } from "../lib/captura-ui";
       void init();
+
+      // Service Worker: hace que la app ABRA sin señal (ver public/sw.js).
+      // Se registra después de init para no competir por ancho de banda con el
+      // catálogo, y si falla no estorba: la captura funciona igual.
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+        });
+      }
     </script>
   </body>
 </html>

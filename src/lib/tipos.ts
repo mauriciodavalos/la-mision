@@ -58,6 +58,19 @@ export interface Tienda {
 export interface Agente {
   id: string;
   nombre: string;
+  // Credencial de fase 1 (ver 0004_pin_agente.sql). Viajan al navegador a
+  // propósito: el PIN se valida SIN SEÑAL contra el catálogo cacheado.
+  // Van nulos mientras el agente no tenga PIN asignado.
+  pin_salt?: string | null;
+  pin_hash?: string | null;
+}
+
+// Agente identificado en ESTE dispositivo (se guarda en localStorage).
+export interface Identidad {
+  cliente_id: string;
+  agente_id: string;
+  agente_nombre: string;
+  desde: string; // ISO UTC — cuándo se identificó
 }
 
 // ---- Datos locales (cola offline) ----

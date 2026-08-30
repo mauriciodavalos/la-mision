@@ -7,12 +7,17 @@
 import type { VisitaPendiente } from "./tipos";
 
 const DB_NOMBRE = "lamision-cola";
-const DB_VERSION = 1;
+// v2 agrega el store `catalogo` (ver catalogo-cache.ts) para que la app abra y
+// valide el PIN sin señal. La migración es ADITIVA: no toca el store `visitas`,
+// así que una cola con visitas pendientes sobrevive intacta a la actualización.
+const DB_VERSION = 2;
 const STORE = "visitas";
+export const STORE_CATALOGO = "catalogo";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
-function abrir(): Promise<IDBDatabase> {
+// Abre (y migra) la base. La comparten la cola de visitas y el cache de catálogo.
+export function abrir(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NOMBRE, DB_VERSION);
@@ -20,6 +25,9 @@ function abrir(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORE_CATALOGO)) {
+        db.createObjectStore(STORE_CATALOGO, { keyPath: "clave" });
       }
     };
     req.onsuccess = () => resolve(req.result);

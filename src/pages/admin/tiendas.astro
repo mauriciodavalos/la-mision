@@ -1,0 +1,59 @@
+---
+// Importador de tiendas por CSV (herramienta de administración, FASE 1).
+//
+// Se habilita con PUBLIC_ADMIN=1, que se define solo en .env.local (la máquina de
+// Mauricio) y NO en Netlify: en el sitio publicado esta página no monta nada.
+//
+// Honestidad sobre qué protege la bandera: en fase 1 la RLS está apagada y la key
+// publishable viaja en el bundle, así que quien la tenga puede escribir en
+// `tiendas` exista o no esta página. La bandera evita dejar la herramienta a la
+// vista y a un clic; NO es una cerradura. La cerradura llega en fase 2 con
+// Supabase Auth + RLS + roles (9999_rls_fase2.sql.txt).
+import "../../styles/captura.css";
+
+const habilitado = import.meta.env.PUBLIC_ADMIN === "1";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#123B3A" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Importar tiendas — La Misión</title>
+  </head>
+  <body>
+    <div id="app" class="bs-root">
+      <header class="bs-head">
+        <div class="bs-shell" style="padding-bottom:18px">
+          <p class="bs-brand">La Misión · Administración</p>
+          <h1 class="bs-title">{habilitado ? "Importar tiendas" : "No disponible"}</h1>
+        </div>
+      </header>
+      <main class="bs-shell">
+        <div class="bs-body" id="admin-body">
+          <section class="bs-field">
+            <p class="bs-hint" style="margin-left:0">
+              {
+                habilitado
+                  ? "Cargando catálogo…"
+                  : "Esta herramienta de administración no está habilitada en este sitio. Se corre en local con PUBLIC_ADMIN=1 en .env.local."
+              }
+            </p>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      // La guarda va dentro del módulo: Astro hoistea los <script>, así que
+      // condicionarlos en el template no sirve. import.meta.env se sustituye en
+      // build, de modo que sin PUBLIC_ADMIN el cuerpo se elimina del bundle.
+      if (import.meta.env.PUBLIC_ADMIN === "1") {
+        const { init } = await import("../../lib/admin-tiendas-ui");
+        void init();
+      }
+    </script>
+  </body>
+</html>

@@ -5,16 +5,16 @@
 
 import { comprimir, kb } from "./comprimir";
 import { obtenerUbicacion, type Ubicacion } from "./gps";
-import { buscarTiendas, listarAgentes, listarClientes, listarMarcas } from "./catalogo";
+import { buscarTiendas, listarMarcas, listarTiendas } from "./catalogo";
 import * as cola from "./cola";
 import { iniciarSync, sincronizar } from "./sync";
+import { asegurarIdentidad, type Contexto } from "./identidad-ui";
+import { olvidarIdentidad } from "./identidad";
 import type { Agente, Cliente, FotoLocal, Marca, Tienda, VisitaPendiente } from "./tipos";
 
 // ---- estado ----
 const estado = {
-  clientes: [] as Cliente[],
   marcas: [] as Marca[],
-  agentes: [] as Agente[],
   cliente: null as Cliente | null,
   marca: null as Marca | null,
   agente: null as Agente | null,
@@ -68,6 +68,10 @@ function montarEsqueleto(root: HTMLElement) {
           <div>
             <p class="bs-brand" id="marca-nombre">La Misión</p>
             <h1 class="bs-title">Control de<br>exhibición</h1>
+            <p class="bs-quien">
+              <span id="quien-txt"></span>
+              <button class="bs-quien-btn" id="btn-cambiar-agente">cambiar</button>
+            </p>
           </div>
           <span class="bs-chip is-on" id="chip">
             <span class="bs-dot is-live"></span><span id="chip-txt">En línea</span>
@@ -96,6 +100,26 @@ function montarEsqueleto(root: HTMLElement) {
   $("#tab-captura")!.addEventListener("click", () => cambiarVista("captura"));
   $("#tab-registros")!.addEventListener("click", () => cambiarVista("registros"));
   $("#btn-sync")!.addEventListener("click", () => void sincronizar());
+  $("#btn-cambiar-agente")!.addEventListener("click", () => void cambiarAgente());
+}
+
+// Cierra la sesión del agente en este teléfono y vuelve a pedir PIN.
+// La cola de visitas NO se toca: si hay evidencia sin subir, no se cambia de
+// agente (regla no negociable: nunca perder evidencia).
+async function cambiarAgente() {
+  const pendientes = (await cola.listar()).filter(
+    (v) => v.estado === "pendiente" || v.estado === "error"
+  ).length;
+  if (pendientes > 0) {
+    mostrarBanner(
+      `No se puede cambiar de agente: hay ${pendientes} registro(s) sin subir. ` +
+        `Conéctate y sincroniza primero.`
+    );
+    return;
+  }
+  if (!confirm("¿Cambiar de agente? Se pedirá el PIN de nuevo.")) return;
+  await olvidarIdentidad();
+  location.reload();
 }
 
 function cambiarVista(v: "captura" | "registros") {
@@ -118,33 +142,42 @@ function refrescarChip() {
 }
 
 // ---- contexto (cliente / marca / agente) ----
-async function cargarContexto() {
+// El cliente y el agente ya vienen resueltos y verificados por la pantalla de
+// identidad (identidad-ui.ts). Aquí solo se cargan marca y tiendas.
+async function cargarContexto(ctx: Contexto) {
+  estado.cliente = ctx.cliente;
+  estado.agente = ctx.agente;
+
+  // Quién captura y en qué cuenta: siempre visible, para que nadie capture en el
+  // cliente equivocado sin darse cuenta.
+  $("#quien-txt")!.textContent = `${ctx.agente.nombre} · ${ctx.cliente.nombre}`;
+
   try {
-    estado.clientes = await listarClientes();
-  } catch (e) {
-    mostrarBanner("No se pudo leer el catálogo. Revisa la conexión a Supabase.");
+    estado.marcas = await listarMarcas(ctx.cliente.id);
+  } catch {
+    mostrarBanner(
+      "No se pudo leer el catálogo y no hay copia en este dispositivo. Conéctate una vez."
+    );
     return;
   }
-  if (estado.clientes.length === 0) {
-    mostrarBanner("Todavía no hay clientes dados de alta. Crea uno para capturar.");
-    return;
-  }
-  estado.cliente = estado.clientes[0];
-  [estado.marcas, estado.agentes] = await Promise.all([
-    listarMarcas(estado.cliente.id),
-    listarAgentes(estado.cliente.id),
-  ]);
   estado.marca = estado.marcas[0] ?? null;
-  estado.agente = estado.agentes[0] ?? null;
 
   if (!estado.marca) {
     mostrarBanner("Este cliente no tiene marcas configuradas.");
     return;
   }
-  if (!estado.agente) {
-    mostrarBanner("Este cliente no tiene agentes ligados (tabla agente_cliente).");
-  }
   $("#marca-nombre")!.textContent = estado.marca.nombre;
+
+  // Descarga el catálogo de tiendas de una vez y lo cachea: la búsqueda queda
+  // instantánea y sigue funcionando dentro de la tienda sin señal.
+  try {
+    await listarTiendas(ctx.cliente.id);
+  } catch {
+    mostrarBanner(
+      "Sin catálogo de tiendas descargado. Conéctate una vez para poder capturar sin señal."
+    );
+  }
+
   renderFormulario();
 }
 
@@ -168,9 +201,7 @@ function renderFormulario() {
   if (estado.marcas.length > 1) {
     partes.push(selectorHTML("sel-marca", "Marca", estado.marcas.map((m) => [m.id, m.nombre]), estado.marca!.id));
   }
-  if (estado.agentes.length > 1) {
-    partes.push(selectorHTML("sel-agente", "Agente", estado.agentes.map((a) => [a.id, a.nombre]), estado.agente?.id ?? ""));
-  }
+  // El agente NO se elige aquí: queda fijo por la pantalla de identidad (PIN).
 
   // 01 Tienda
   partes.push(`
@@ -243,13 +274,6 @@ function renderFormulario() {
       renderFormulario();
     });
   }
-  if (estado.agentes.length > 1) {
-    $("#sel-agente")!.addEventListener("change", (e) => {
-      const id = (e.target as HTMLSelectElement).value;
-      estado.agente = estado.agentes.find((a) => a.id === id) ?? estado.agente;
-    });
-  }
-
   $("#notas")!.addEventListener("input", (e) => {
     estado.notas = (e.target as HTMLTextAreaElement).value;
   });
@@ -621,6 +645,13 @@ async function refrescarQueue() {
 export async function init() {
   const root = document.getElementById("app");
   if (!root) return;
+
+  // 1) Identificar al agente ANTES de montar la app. Si no se puede (sin catálogo,
+  //    sin agentes), asegurarIdentidad ya dejó puesta la pantalla que lo explica.
+  const ctx = await asegurarIdentidad(root);
+  if (!ctx) return;
+
+  // 2) Ya identificado: se monta el flujo de captura.
   montarEsqueleto(root);
   refrescarChip();
 
@@ -639,7 +670,7 @@ export async function init() {
     if (estado.vista === "registros") void refrescarRegistros();
   });
 
-  await cargarContexto();
+  await cargarContexto(ctx);
   await refrescarQueue();
   iniciarSync();
 }

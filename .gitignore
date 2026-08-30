@@ -27,3 +27,8 @@ pnpm-debug.log*
 # supabase CLI (estado local, no versionar)
 supabase/.temp/
 supabase/.branches/
+
+# Datos de clientes reales (catalogos de tiendas, rutas, agentes).
+# El repo es publico: los datos operativos viven en la base, no aqui.
+*.csv
+!ejemplo*.csv
