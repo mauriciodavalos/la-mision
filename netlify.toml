@@ -1,0 +1,14 @@
+# Configuración de despliegue en Netlify.
+# Astro con salida estática: se compila a dist/ y Netlify sirve esa carpeta.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Astro 7 requiere Node >= 22.12 (ver "engines" en package.json).
+  NODE_VERSION = "22"
+
+# OJO: las variables PUBLIC_SUPABASE_URL y PUBLIC_SUPABASE_ANON_KEY NO van aquí.
+# Se configuran en Netlify → Site settings → Environment variables, porque el
+# build las necesita (Astro incrusta las PUBLIC_ en el bundle del cliente).
