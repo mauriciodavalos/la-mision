@@ -545,6 +545,10 @@ async function guardar() {
     fotos: Object.values(estado.fotos),
     tienda_nombre: t.nombre ?? "(sin nombre)",
     tienda_clave: t.clave_sucursal,
+    // Se copian al encolar para que la ruta del Storage se pueda armar sin red
+    // al momento de subir (ver sync.ts -> rutaFoto).
+    cliente_slug: estado.cliente!.slug,
+    cadena_slug: t.cadena_slug,
     estado: "pendiente",
     creada_en: ahora,
   };

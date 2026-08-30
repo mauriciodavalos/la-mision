@@ -63,9 +63,15 @@ begin
   end if;
 
   -- 1) Cliente ---------------------------------------------------------------
+  -- El slug se deriva del nombre y es ESTABLE: es el primer segmento de la ruta
+  -- de Storage y (a futuro) el subdominio. Si un cliente ya existe, NO se le
+  -- toca el slug aunque le cambien el nombre — mover carpetas ya escritas es
+  -- otra historia. Ver 0005_slugs.sql.
   select id into v_cliente from public.clientes where nombre = v_cliente_nombre;
   if v_cliente is null then
-    insert into public.clientes (nombre) values (v_cliente_nombre) returning id into v_cliente;
+    insert into public.clientes (nombre, slug)
+    values (v_cliente_nombre, public.slugify(v_cliente_nombre))
+    returning id into v_cliente;
     raise notice 'Cliente creado: % (%)', v_cliente_nombre, v_cliente;
   else
     raise notice 'Cliente ya existía: % (%)', v_cliente_nombre, v_cliente;
@@ -80,8 +86,8 @@ begin
   raise notice 'Marca lista: % (%)', v_marca_nombre, v_marca;
 
   -- 3) Cadena ----------------------------------------------------------------
-  insert into public.cadenas (cliente_id, nombre)
-  values (v_cliente, v_cadena_nombre)
+  insert into public.cadenas (cliente_id, nombre, slug)
+  values (v_cliente, v_cadena_nombre, public.slugify(v_cadena_nombre))
   on conflict (cliente_id, nombre) do update set activo = true
   returning id into v_cadena;
   raise notice 'Cadena lista: % (%)', v_cadena_nombre, v_cadena;

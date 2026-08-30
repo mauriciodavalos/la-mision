@@ -3,6 +3,8 @@
 export interface Cliente {
   id: string;
   nombre: string;
+  // Identificador estable para rutas de Storage y URL por empresa (ver 0005_slugs.sql).
+  slug: string;
 }
 
 export interface Marca {
@@ -44,6 +46,7 @@ export interface Cadena {
   id: string;
   cliente_id: string;
   nombre: string;
+  slug: string;
 }
 
 export interface Tienda {
@@ -53,6 +56,7 @@ export interface Tienda {
   clave_sucursal: string;
   nombre: string | null;
   cadena_nombre?: string; // resuelto en el join para mostrar
+  cadena_slug?: string;   // resuelto en el join, para armar la ruta de Storage
 }
 
 export interface Agente {
@@ -102,6 +106,11 @@ export interface VisitaPendiente {
   // Copias para mostrar en "Registros" sin volver a consultar la red:
   tienda_nombre: string;
   tienda_clave: string;
+  // Copias para armar la ruta legible del Storage sin depender de la red al
+  // momento de subir (ver sync.ts -> rutaFoto). Opcionales: una visita encolada
+  // ANTES de este cambio no las trae, y el sync cae a la ruta vieja por UUID.
+  cliente_slug?: string;
+  cadena_slug?: string;
   // Estado local de sincronización:
   estado: "pendiente" | "sincronizado" | "error";
   ultimo_error?: string;

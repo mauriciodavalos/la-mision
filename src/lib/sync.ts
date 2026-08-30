@@ -14,6 +14,58 @@ import type { VisitaPendiente } from "./tipos";
 const BUCKET = "evidencias";
 let sincronizando = false;
 
+// ---- ruta de las fotos en el Storage ---------------------------------------
+//
+// Legible a propósito, para poder entender el bucket sin cruzar UUIDs a mano:
+//
+//   bikes-shot/bodega-aurrera/3784-ba-1-de-mayo/2026-08-30_1639_panoramica_889a6a79.webp
+//   └ cliente  └ cadena       └ clave + nombre  └ fecha y hora  └ tipo  └ id corto
+//
+// Decisiones:
+//  * Cliente y cadena van por SLUG, no por nombre: el slug es estable, así que
+//    renombrar la empresa no parte las carpetas ya escritas (ver 0005_slugs.sql).
+//  * La tienda va con la CLAVE primero: es la llave del retailer y no cambia,
+//    mientras que el nombre sí. Además ordena por número.
+//  * El id corto de la foto al final es lo que conserva la IDEMPOTENCIA: la ruta
+//    es siempre la misma para la misma foto, así que reintentar sobrescribe en
+//    vez de duplicar. Sin él, dos visitas al mismo minuto se pisarían.
+
+function slug(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Fecha y hora REAL de captura, en horario de operación (America/Mexico_City).
+// Determinista: depende solo de capturada_en, que se fija una vez al capturar.
+function selloTiempo(iso: string): string {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const g = (t: string) => p.find((x) => x.type === t)?.value ?? "00";
+  return `${g("year")}-${g("month")}-${g("day")}_${g("hour")}${g("minute")}`;
+}
+
+function rutaFoto(v: VisitaPendiente, foto: { id: string; tipo: string }): string {
+  // Respaldo por UUID para visitas encoladas ANTES de que existieran los slugs:
+  // suben con la ruta vieja en vez de fallar. Nunca perder evidencia.
+  if (!v.cliente_slug || !v.cadena_slug) {
+    return `${v.cliente_id}/${v.id}/${foto.id}.webp`;
+  }
+  const tienda = slug(`${v.tienda_clave}-${v.tienda_nombre}`);
+  const archivo = `${selloTiempo(v.capturada_en)}_${slug(foto.tipo)}_${foto.id.slice(0, 8)}.webp`;
+  return `${v.cliente_slug}/${v.cadena_slug}/${tienda}/${archivo}`;
+}
+
 // Avisa a la UI que la cola cambió (para refrescar contadores y la lista).
 function notificar() {
   window.dispatchEvent(new CustomEvent("cola-cambio"));
@@ -21,11 +73,11 @@ function notificar() {
 
 // Sube una sola visita. Lanza si algo falla (para reintentar después).
 async function subirVisita(v: VisitaPendiente): Promise<void> {
-  // 1) Subir cada foto al Storage. Ruta: {cliente_id}/{visita_id}/{foto_id}.webp
+  // 1) Subir cada foto al Storage (ver rutaFoto: ruta legible y determinista).
   //    upsert:true -> reintentar sobre la misma ruta no duplica ni falla.
   const rutas: Record<string, string> = {};
   for (const foto of v.fotos) {
-    const ruta = `${v.cliente_id}/${v.id}/${foto.id}.webp`;
+    const ruta = rutaFoto(v, foto);
     const { error } = await supabase.storage.from(BUCKET).upload(ruta, foto.blob, {
       contentType: "image/webp",
       upsert: true,

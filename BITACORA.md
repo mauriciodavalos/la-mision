@@ -86,6 +86,22 @@ hasta que eso pase.
   con el evento `online` más un intervalo de respaldo. Menos piezas que fallen.
   El SW **nunca** cachea llamadas a Supabase: el catálogo tiene su propio cache.
 
+- **Rutas del Storage legibles, por slug (`0005_slugs.sql`, `sync.ts -> rutaFoto`).**
+  Antes era `{cliente_id}/{visita_id}/{foto_id}.webp`: imposible entender el bucket
+  sin cruzar UUIDs a mano. Ahora:
+  `bikes-shot/bodega-aurrera/3784-ba-1-de-mayo/2026-08-30_1639_panoramica_adc9fffd.webp`
+  - Cliente y cadena van por **slug**, no por nombre: el slug es estable, así que
+    renombrar la empresa no parte las carpetas ya escritas.
+  - La tienda lleva la **clave primero** (`3784-…`): es la llave del retailer y no
+    cambia, mientras el nombre sí; de paso ordena por número.
+  - Se incluye la **cadena** porque `clave_sucursal` es única dentro de una cadena,
+    no dentro del cliente: dos cadenas del mismo cliente podrían chocar.
+  - El **id corto de la foto** al final conserva la idempotencia: la ruta es la
+    misma para la misma foto, así que reintentar sobrescribe en vez de duplicar.
+  - Una visita encolada ANTES del cambio sube con la ruta vieja por UUID en vez de
+    fallar (respaldo en `rutaFoto`). Nunca perder evidencia.
+  - El mismo slug sirve para la URL por empresa, que era el otro pendiente.
+
 ### Pendiente de decidir — una base de datos por cliente
 Se planteó dar URL y base independientes por marca. Análisis: **URL por cliente sí**
 (slug → `cliente_id`; barato, y de paso fija el tenant), **base por cliente no**:

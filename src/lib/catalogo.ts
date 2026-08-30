@@ -14,7 +14,7 @@ export async function listarClientes(): Promise<Cliente[]> {
   return cache.redPrimero(cache.claves.clientes(), async () => {
     const { data, error } = await supabase
       .from("clientes")
-      .select("id, nombre")
+      .select("id, nombre, slug")
       .eq("activo", true)
       .order("nombre");
     if (error) throw error;
@@ -39,7 +39,7 @@ export async function listarCadenas(clienteId: string): Promise<Cadena[]> {
   return cache.redPrimero(cache.claves.cadenas(clienteId), async () => {
     const { data, error } = await supabase
       .from("cadenas")
-      .select("id, cliente_id, nombre")
+      .select("id, cliente_id, nombre, slug")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("nombre");
@@ -59,7 +59,7 @@ export async function listarTiendas(clienteId: string): Promise<Tienda[]> {
   return cache.redPrimero(cache.claves.tiendas(clienteId), async () => {
     const { data, error } = await supabase
       .from("tiendas")
-      .select("id, cliente_id, cadena_id, clave_sucursal, nombre, cadenas(nombre)")
+      .select("id, cliente_id, cadena_id, clave_sucursal, nombre, cadenas(nombre, slug)")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("nombre")
@@ -72,6 +72,7 @@ export async function listarTiendas(clienteId: string): Promise<Tienda[]> {
       clave_sucursal: r.clave_sucursal,
       nombre: r.nombre,
       cadena_nombre: r.cadenas?.nombre,
+      cadena_slug: r.cadenas?.slug,
     })) as Tienda[];
   });
 }

@@ -72,14 +72,27 @@ create policy agente_cliente_propio on public.agente_cliente
   );
 
 -- Storage (bucket 'evidencias'): acceso solo a carpetas de tus clientes.
--- La ruta es evidencias/{cliente_id}/..., así que el primer segmento del path
--- debe ser un cliente del usuario.
+-- La ruta es evidencias/{slug_cliente}/{slug_cadena}/{clave-tienda}/{archivo},
+-- así que el PRIMER segmento debe ser el slug de un cliente del usuario.
+--
+-- OJO: antes de 0005_slugs.sql el primer segmento era el cliente_id (UUID). Si
+-- quedaron objetos viejos con ruta por UUID, hay que migrarlos ANTES de aplicar
+-- esta policy, o quedarán inaccesibles. Para revisarlo:
+--   select name from storage.objects
+--    where bucket_id = 'evidencias'
+--      and (storage.foldername(name))[1] ~ '^[0-9a-f-]{36}$';
 create policy evidencias_storage_scope on storage.objects
   for all using (
     bucket_id = 'evidencias'
-    and (storage.foldername(name))[1]::uuid in (select public.clientes_del_usuario())
+    and (storage.foldername(name))[1] in (
+      select c.slug from public.clientes c
+      where c.id in (select public.clientes_del_usuario())
+    )
   )
   with check (
     bucket_id = 'evidencias'
-    and (storage.foldername(name))[1]::uuid in (select public.clientes_del_usuario())
+    and (storage.foldername(name))[1] in (
+      select c.slug from public.clientes c
+      where c.id in (select public.clientes_del_usuario())
+    )
   );

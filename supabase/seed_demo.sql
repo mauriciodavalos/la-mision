@@ -16,7 +16,7 @@ declare
   v_cadena  uuid;
   v_agente  uuid;
 begin
-  insert into public.clientes (nombre) values ('[DEMO] Cliente de prueba')
+  insert into public.clientes (nombre, slug) values ('[DEMO] Cliente de prueba', 'demo-cliente-de-prueba')
     returning id into v_cliente;
 
   insert into public.marcas (cliente_id, nombre, config_captura)
@@ -32,7 +32,7 @@ begin
     )
     returning id into v_marca;
 
-  insert into public.cadenas (cliente_id, nombre) values (v_cliente, '[DEMO] Cadena de prueba')
+  insert into public.cadenas (cliente_id, nombre, slug) values (v_cliente, '[DEMO] Cadena de prueba', 'demo-cadena-de-prueba')
     returning id into v_cadena;
 
   insert into public.tiendas (cliente_id, cadena_id, clave_sucursal, nombre, municipio, estado, latitud, longitud) values
