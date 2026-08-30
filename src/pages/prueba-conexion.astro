@@ -1,0 +1,42 @@
+---
+// Página temporal para verificar la conexión a Supabase.
+// No es parte del flujo de captura; se puede borrar cuando ya confirmaste que conecta.
+import { supabase } from "../db/supabase";
+
+const { data, error } = await supabase.from("todos").select("*");
+---
+
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prueba de conexión a Supabase</title>
+  </head>
+  <body style="font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5;">
+    <h1>Prueba de conexión a Supabase</h1>
+
+    {
+      error ? (
+        <div>
+          <p>⚠️ El servidor respondió con un error:</p>
+          <pre style="background:#f4f4f4; padding:1rem; overflow:auto; border-radius:6px;">{JSON.stringify(error, null, 2)}</pre>
+          {(error.code === "42P01" || error.code === "PGRST205") && (
+            <p>
+              El código <code>42P01</code> significa que la tabla <code>todos</code> no existe.
+              Eso es normal: <strong>la conexión funciona</strong>, solo falta crear tablas de tu dominio.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div>
+          <p>✅ Conexión OK. Filas encontradas en <code>todos</code>: {data?.length ?? 0}</p>
+          <ul>
+            {(data ?? []).map((row) => (
+              <li>{JSON.stringify(row)}</li>
+            ))}
+          </ul>
+        </div>
+      )
+    }
+  </body>
+</html>

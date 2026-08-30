@@ -1,0 +1,22 @@
+---
+// Página de captura de visitas. HTML-first: el script cliente (captura-ui) monta
+// el formulario config-driven sobre #app y maneja fotos, GPS, cola offline y sync.
+import "../styles/captura.css";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#123B3A" />
+    <title>Captura de exhibiciones — La Misión</title>
+  </head>
+  <body>
+    <div id="app" class="bs-root"></div>
+    <script>
+      import { init } from "../lib/captura-ui";
+      void init();
+    </script>
+  </body>
+</html>

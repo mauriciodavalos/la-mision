@@ -1,0 +1,85 @@
+-- =============================================================================
+-- 9999_rls_fase2.sql.txt — RLS por cliente (FASE 2, NO APLICAR TODAVÍA)
+-- -----------------------------------------------------------------------------
+-- Extensión .txt A PROPÓSITO: no lo corre `supabase db push`. Es el gancho de
+-- fase 2 para aislamiento real por cliente. En fase 1 el aislamiento es por
+-- consulta (el backend filtra por cliente_id). Cuando quieras activar RLS:
+--   1) Renombra este archivo a un número de migración .sql (p.ej. 0010_rls.sql).
+--   2) Revísalo contra el modelo de auth definitivo (roles, claims).
+--   3) Aplícalo.
+--
+-- La regla de oro: un agente solo ve datos de los clientes a los que pertenece
+-- (tabla agente_cliente), resuelto contra auth.uid() -> agentes.user_id.
+-- =============================================================================
+
+-- Helper: clientes a los que pertenece el usuario autenticado -----------------
+create or replace function public.clientes_del_usuario()
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select ac.cliente_id
+  from public.agente_cliente ac
+  join public.agentes a on a.id = ac.agente_id
+  where a.user_id = auth.uid();
+$$;
+
+-- Activar RLS ----------------------------------------------------------------
+alter table public.clientes       enable row level security;
+alter table public.marcas         enable row level security;
+alter table public.cadenas        enable row level security;
+alter table public.tiendas        enable row level security;
+alter table public.agentes        enable row level security;
+alter table public.agente_cliente enable row level security;
+alter table public.visitas        enable row level security;
+alter table public.evidencias     enable row level security;
+
+-- Policies por cliente_id (lectura/escritura del propio cliente) --------------
+-- Patrón repetido para cada tabla operativa con cliente_id:
+create policy cliente_scope_marcas on public.marcas
+  for all using (cliente_id in (select public.clientes_del_usuario()))
+  with check (cliente_id in (select public.clientes_del_usuario()));
+
+create policy cliente_scope_cadenas on public.cadenas
+  for all using (cliente_id in (select public.clientes_del_usuario()))
+  with check (cliente_id in (select public.clientes_del_usuario()));
+
+create policy cliente_scope_tiendas on public.tiendas
+  for all using (cliente_id in (select public.clientes_del_usuario()))
+  with check (cliente_id in (select public.clientes_del_usuario()));
+
+create policy cliente_scope_visitas on public.visitas
+  for all using (cliente_id in (select public.clientes_del_usuario()))
+  with check (cliente_id in (select public.clientes_del_usuario()));
+
+create policy cliente_scope_evidencias on public.evidencias
+  for all using (cliente_id in (select public.clientes_del_usuario()))
+  with check (cliente_id in (select public.clientes_del_usuario()));
+
+-- clientes: el usuario solo ve los clientes a los que pertenece
+create policy cliente_scope_clientes on public.clientes
+  for select using (id in (select public.clientes_del_usuario()));
+
+-- agentes / agente_cliente: el usuario ve su propia ficha y membresías
+create policy agente_propio on public.agentes
+  for select using (user_id = auth.uid());
+
+create policy agente_cliente_propio on public.agente_cliente
+  for select using (
+    agente_id in (select id from public.agentes where user_id = auth.uid())
+  );
+
+-- Storage (bucket 'evidencias'): acceso solo a carpetas de tus clientes.
+-- La ruta es evidencias/{cliente_id}/..., así que el primer segmento del path
+-- debe ser un cliente del usuario.
+create policy evidencias_storage_scope on storage.objects
+  for all using (
+    bucket_id = 'evidencias'
+    and (storage.foldername(name))[1]::uuid in (select public.clientes_del_usuario())
+  )
+  with check (
+    bucket_id = 'evidencias'
+    and (storage.foldername(name))[1]::uuid in (select public.clientes_del_usuario())
+  );
