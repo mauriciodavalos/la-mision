@@ -89,11 +89,19 @@ hasta que eso pase.
 - **Rutas del Storage legibles, por slug (`0005_slugs.sql`, `sync.ts -> rutaFoto`).**
   Antes era `{cliente_id}/{visita_id}/{foto_id}.webp`: imposible entender el bucket
   sin cruzar UUIDs a mano. Ahora:
-  `bikes-shot/bodega-aurrera/3784-ba-1-de-mayo/2026-08-30_1639_panoramica_adc9fffd.webp`
+  `bikes-shot/bodega-aurrera/3784-ba-1-de-mayo-08-30-2026/1639_panoramica_adc9fffd.webp`
   - Cliente y cadena van por **slug**, no por nombre: el slug es estable, así que
     renombrar la empresa no parte las carpetas ya escritas.
   - La tienda lleva la **clave primero** (`3784-…`): es la llave del retailer y no
     cambia, mientras el nombre sí; de paso ordena por número.
+  - La **fecha (mm-dd-aaaa) va en la carpeta de la tienda**, a pedido de Mauricio:
+    cada visita a una tienda en un día queda en su propia carpeta. Con guiones, no
+    diagonales — en Storage una `/` crea carpetas anidadas. La **hora** va en el
+    archivo, para distinguir dos visitas a la misma tienda el mismo día.
+    *Nota:* `mm-dd-aaaa` no ordena cronológicamente al listar (agrupa por mes entre
+    años distintos). Se eligió así por legibilidad; `aaaa-mm-dd` sí ordenaría.
+  - La fecha se calcula en **America/Mexico_City** desde `capturada_en`, no en UTC:
+    una visita a las 20:00 CDMX no debe caer en la carpeta del día siguiente.
   - Se incluye la **cadena** porque `clave_sucursal` es única dentro de una cadena,
     no dentro del cliente: dos cadenas del mismo cliente podrían chocar.
   - El **id corto de la foto** al final conserva la idempotencia: la ruta es la

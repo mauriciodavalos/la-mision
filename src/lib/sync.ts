@@ -18,17 +18,22 @@ let sincronizando = false;
 //
 // Legible a propósito, para poder entender el bucket sin cruzar UUIDs a mano:
 //
-//   bikes-shot/bodega-aurrera/3784-ba-1-de-mayo/2026-08-30_1639_panoramica_889a6a79.webp
-//   └ cliente  └ cadena       └ clave + nombre  └ fecha y hora  └ tipo  └ id corto
+//   bikes-shot/bodega-aurrera/3784-ba-1-de-mayo-08-30-2026/1639_panoramica_889a6a79.webp
+//   └ cliente  └ cadena       └ clave-nombre-fecha         └ hora └ tipo └ id corto
 //
 // Decisiones:
 //  * Cliente y cadena van por SLUG, no por nombre: el slug es estable, así que
 //    renombrar la empresa no parte las carpetas ya escritas (ver 0005_slugs.sql).
 //  * La tienda va con la CLAVE primero: es la llave del retailer y no cambia,
 //    mientras que el nombre sí. Además ordena por número.
+//  * La FECHA (mm-dd-aaaa) va en la carpeta de la tienda: así cada visita a una
+//    tienda en un día queda en su propia carpeta y la gestión es directa.
+//    Con guiones, no diagonales: en Storage una "/" crea carpetas anidadas.
+//  * La HORA va en el archivo, para distinguir dos visitas a la misma tienda el
+//    mismo día.
 //  * El id corto de la foto al final es lo que conserva la IDEMPOTENCIA: la ruta
 //    es siempre la misma para la misma foto, así que reintentar sobrescribe en
-//    vez de duplicar. Sin él, dos visitas al mismo minuto se pisarían.
+//    vez de duplicar.
 
 function slug(s: string): string {
   return s
@@ -40,8 +45,9 @@ function slug(s: string): string {
 }
 
 // Fecha y hora REAL de captura, en horario de operación (America/Mexico_City).
-// Determinista: depende solo de capturada_en, que se fija una vez al capturar.
-function selloTiempo(iso: string): string {
+// Determinista: depende solo de capturada_en, que se fija una vez al capturar y
+// ya no cambia aunque el sync se reintente días después.
+function partesFecha(iso: string): { fecha: string; hora: string } {
   const p = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Mexico_City",
     year: "numeric",
@@ -52,7 +58,10 @@ function selloTiempo(iso: string): string {
     hour12: false,
   }).formatToParts(new Date(iso));
   const g = (t: string) => p.find((x) => x.type === t)?.value ?? "00";
-  return `${g("year")}-${g("month")}-${g("day")}_${g("hour")}${g("minute")}`;
+  return {
+    fecha: `${g("month")}-${g("day")}-${g("year")}`, // mm-dd-aaaa
+    hora: `${g("hour")}${g("minute")}`,
+  };
 }
 
 function rutaFoto(v: VisitaPendiente, foto: { id: string; tipo: string }): string {
@@ -61,8 +70,9 @@ function rutaFoto(v: VisitaPendiente, foto: { id: string; tipo: string }): strin
   if (!v.cliente_slug || !v.cadena_slug) {
     return `${v.cliente_id}/${v.id}/${foto.id}.webp`;
   }
-  const tienda = slug(`${v.tienda_clave}-${v.tienda_nombre}`);
-  const archivo = `${selloTiempo(v.capturada_en)}_${slug(foto.tipo)}_${foto.id.slice(0, 8)}.webp`;
+  const { fecha, hora } = partesFecha(v.capturada_en);
+  const tienda = slug(`${v.tienda_clave}-${v.tienda_nombre}-${fecha}`);
+  const archivo = `${hora}_${slug(foto.tipo)}_${foto.id.slice(0, 8)}.webp`;
   return `${v.cliente_slug}/${v.cadena_slug}/${tienda}/${archivo}`;
 }
 
