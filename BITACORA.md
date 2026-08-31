@@ -301,20 +301,86 @@ entorno de prueba desde cero.
 
 ---
 
+## Sesión del 31 de agosto — primer día de captura real
+
+**Sin cambios de código.** No hubo commits ni edits: la sesión fue de observación.
+Se sostuvo la decisión del 30 de agosto —dejar que los agentes capturen unos días
+antes de tocar nada— y se midió lo que ya hay en la base.
+
+### Qué pasó en campo (consultado en producción el 31 ago, 15:37 hrs CDMX)
+
+**5 visitas y 10 evidencias** (2 fotos cada una, ninguna incompleta):
+
+| Hora (CDMX) | Agente | Cliente / marca @ cadena | Tienda | GPS | Notas |
+|---|---|---|---|---|---|
+| 10:58 | Lalo | Bikes Shot @ Bodega Aurrerá | BA 1 DE MAYO | sí | "Prueba" |
+| 14:30 | Lalo | Bikes Shot @ Bodega Aurrerá | BA FLORES MAGON | sí | "Solo se encuentra LM en exhibición…" |
+| 14:32 | Mau | Ondina @ Sanborns | TOREO PARQUE CENTRAL | sí | "Prueba en oficina" |
+| 14:33 | Mau | Anframa @ Sanborns | TOREO PARQUE CENTRAL | **no** | "Prueba sin conexion" |
+| 14:35 | Mau | Anframa @ Sanborns | ACAPULCO CENTRO | **no** | "Prueba sin conexión 2" |
+
+**La primera visita de campo con contenido real es la de Lalo en BA Flores Magón**
+(anotó qué encontró en exhibición). El resto son pruebas deliberadas.
+
+Lo que quedó **confirmado con datos reales**, no en teoría:
+- Las rutas legibles del Storage funcionan tal como se diseñaron:
+  `bikes-shot/bodega-aurrera/2528-ba-flores-magon-08-31-2026/1430_panoramica_fca28fb7.webp`
+  — cliente, cadena, clave+nombre de tienda, fecha local y hora, sin cruzar UUIDs.
+- La misma tienda (TOREO PARQUE CENTRAL) recibió visitas de **dos marcas distintas**
+  del mismo cliente en el mismo día y quedaron separadas: la visita se ancla a
+  tienda + marca, como manda el modelo.
+- Dos agentes de dos clientes distintos capturaron el mismo día sin estorbarse.
+
+### Hallazgo a revisar: dos visitas sin coordenadas
+
+Las dos capturas **sin conexión** guardaron `latitud` y `longitud` en `null`. Revisado
+el código: `src/lib/gps.ts:25` pide la ubicación con `enableHighAccuracy: true` y
+`timeout: 8000`, y **si falla resuelve `null` en silencio** (línea 24). Ocho segundos
+de alta precisión bajo techo, sin la asistencia de red (que sí depende de señal), se
+quedan cortos — el GPS puro tarda más en fijar. **Es lo correcto para no bloquear al agente** —nunca perder la
+evidencia por falta de un dato— pero una visita sin coordenadas vale menos para
+auditar exhibición. Hay que decidir entre reintentar la ubicación en segundo plano y
+adjuntarla al sincronizar, o al menos avisar al agente en pantalla que se guardó sin
+GPS. Se revisa con más datos, no con estas dos.
+
+### Decisión al cerrar (31 ago)
+
+**No tocar nada todavía.** Un día de uso —con una sola visita de campo genuina— no
+alcanza para priorizar. Se mantiene el plan: dejar capturar hasta tener varios días
+de Lalo, Carmen y Romina, y con ese volumen decidir. La pantalla de reportes sigue
+siendo el candidato número uno.
+
+---
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo
-**Lalo, Carmen y Romina están capturando en campo.** La decisión al cerrar la
-sesión del 30 de agosto fue **dejarlos trabajar unos días antes de tocar nada**:
-se aprende más de tres días de uso real que de adivinar mejoras en el escritorio.
 
-**Primera pregunta al retomar:** ¿qué pasó en campo? Antes de proponer nada,
-revisar cuántas visitas hay, de quién, con cuántas fotos, y si hay visitas atoradas
-en estado `error`:
+**Lalo, Carmen y Romina están capturando en campo.** Al 31 de agosto hay **5 visitas**
+en la base (ver la sección de arriba): una de campo real de Lalo y cuatro de prueba.
+La decisión, sostenida dos sesiones seguidas, es **dejarlos trabajar unos días antes
+de tocar nada**: se aprende más de tres días de uso real que de adivinar mejoras en
+el escritorio.
+
+**Primera pregunta al retomar:** ¿qué pasó en campo? Antes de proponer nada, revisar
+cuántas visitas hay, de quién, con cuántas fotos, y si alguna quedó sin coordenadas.
+
+Consulta que **ya está probada** y no necesita psql ni la CLI de Supabase (lee las
+llaves de `.env.local` y pega contra PostgREST):
 
 ```bash
-npx supabase db query --linked "select a.nombre, c.nombre as cliente, count(*) as visitas, min(v.capturada_en) as primera, max(v.capturada_en) as ultima from visitas v join agentes a on a.id=v.agente_id join clientes c on c.id=v.cliente_id group by 1,2 order by 1;"
+set -a && . ./.env.local; set +a
+curl -s -H "apikey: $PUBLIC_SUPABASE_ANON_KEY"   "$PUBLIC_SUPABASE_URL/rest/v1/visitas?select=capturada_en,latitud,notas,agentes(nombre),clientes(nombre),tiendas(nombre),marcas(nombre),cadenas(nombre),evidencias(tipo,storage_path)&order=capturada_en.asc"
 ```
+
+Ojo: `visitas` **no tiene columna `estado`** — el estado (`pendiente`/`error`) vive en
+la cola de IndexedDB del teléfono, no en el servidor. Una visita atorada no se ve en
+la base: se ve porque *falta*. Para detectarlas hay que preguntarle al agente o
+comparar contra su Historial.
+
+**Antes que los candidatos de abajo:** decidir qué hacer con las visitas que se
+guardan sin GPS (ver el hallazgo del 31 de agosto), si con más días el patrón se
+repite.
 
 Con eso en la mano se decide qué sigue. Lo de abajo es la lista de candidatos, no
 un compromiso.
