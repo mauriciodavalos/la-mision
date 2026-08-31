@@ -20,6 +20,7 @@ export interface VisitaHistorial {
   tienda_clave: string;
   tienda_nombre: string | null;
   cadena_nombre: string | null;
+  marca_nombre: string | null;
   agente_nombre: string | null;
   latitud: number | null;
   longitud: number | null;
@@ -56,7 +57,8 @@ export async function listarVisitas(
     .from("visitas")
     .select(
       "id, capturada_en, latitud, longitud, notas, " +
-        "tiendas(clave_sucursal, nombre), cadenas(nombre), agentes(nombre), evidencias(id)"
+        "tiendas(clave_sucursal, nombre), cadenas(nombre), marcas(nombre), " +
+        "agentes(nombre), evidencias(id)"
     )
     .eq("cliente_id", clienteId)
     .gte("capturada_en", desdeUtc)
@@ -75,6 +77,7 @@ export async function listarVisitas(
     tienda_clave: r.tiendas?.clave_sucursal ?? "?",
     tienda_nombre: r.tiendas?.nombre ?? null,
     cadena_nombre: r.cadenas?.nombre ?? null,
+    marca_nombre: r.marcas?.nombre ?? null,
     agente_nombre: r.agentes?.nombre ?? null,
     latitud: r.latitud,
     longitud: r.longitud,

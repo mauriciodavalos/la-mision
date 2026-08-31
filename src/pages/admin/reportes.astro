@@ -1,0 +1,47 @@
+---
+// Panel de administración: registros y fotos de las visitas sincronizadas,
+// filtrados por empresa y agente (FASE 1).
+//
+// A diferencia de /admin/tiendas, esta página SÍ va publicada: se usa desde el
+// teléfono o la computadora, en cualquier lado, no solo en la máquina de
+// Mauricio. Por eso no lleva la bandera PUBLIC_ADMIN; la puerta es la
+// identificación de agente con `es_admin` (ver admin-reportes-ui.ts, sección
+// "alcance de la puerta").
+//
+// noindex porque no tiene nada que hacer en un buscador.
+import "../../styles/captura.css";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#123B3A" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <title>Panel — Registros de campo · La Misión</title>
+  </head>
+  <body>
+    <div id="app" class="bs-root">
+      <header class="bs-head">
+        <div class="bs-shell" style="padding-bottom:18px">
+          <p class="bs-brand">La Misión · Panel</p>
+          <h1 class="bs-title">Registros<br />de campo</h1>
+        </div>
+      </header>
+      <main class="bs-shell">
+        <div class="bs-body">
+          <section class="bs-field">
+            <p class="bs-hint" style="margin-left:0">Cargando…</p>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      import { init } from "../../lib/admin-reportes-ui";
+      void init();
+    </script>
+  </body>
+</html>

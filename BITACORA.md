@@ -372,6 +372,69 @@ siendo el candidato número uno.
 
 ---
 
+## Sesión del 31 de agosto — panel de administración
+
+Se adelantó el **candidato número uno** de la lista (pantalla de reportes) porque
+hizo falta el primer día: sin él, ver el trabajo del equipo obliga a navegar
+carpetas del Storage o a consultar la base a mano.
+
+**Ruta: `/admin/reportes`.** A diferencia de `/admin/tiendas`, esta página **sí va
+publicada** — se usa desde el teléfono o desde donde sea, no solo en la máquina de
+Mauricio con `PUBLIC_ADMIN=1`.
+
+### Qué hace
+- **Filtra por empresa y por agente**, más un rango de fechas. El selector de
+  agentes se puebla según la empresa elegida.
+- **No descarga nada solo.** Al abrir, la pantalla está vacía: hay que elegir y
+  tocar **Consultar**. Abrir el panel "por si acaso" no gasta cuota.
+- **Fotos bajo demanda**, visita por visita, con URL firmada de una hora — igual
+  que el Historial del agente.
+- **Botón "Actualizar"** en la barra fija, e interruptor **"auto 1 min"** para
+  dejarlo refrescando durante la jornada.
+- Resumen arriba: visitas, tiendas, agentes y fotos, con el desglose por agente y
+  cuántas visitas quedaron **sin GPS**, que es el hallazgo pendiente del día.
+
+### Decisiones
+- **Una empresa a la vez, sin opción de "todas".** Los datos de un cliente no se
+  mezclan con los de otro ni en la pantalla del administrador. Al cambiar de
+  empresa los resultados se limpian, para que nadie lea cifras de un cliente bajo
+  el nombre de otro.
+- **El "tiempo real" es sondeo, no websocket.** Supabase Realtime exigiría una
+  migración para publicar la tabla y dejaría una conexión abierta por pestaña, a
+  cambio de ganar segundos sobre un dato que llega cuando el agente sincroniza.
+  El auto-refresco se salta el tick si la pestaña está en segundo plano. El gancho
+  para el día que se necesite es `supabase.channel(...)` sobre `visitas`.
+- **La puerta es el PIN de agente con `es_admin`**, no una bandera de build. Mismo
+  alcance honesto que el resto de fase 1: evita que un agente entre por curiosidad,
+  no resiste a quien tenga la key publishable. La cerradura llega con RLS.
+- **El filtro de agentes suma a los administradores**, no solo a los miembros de
+  `agente_cliente`. Un admin captura en cualquier empresa sin ser miembro: pasó el
+  primer día —tres visitas de Mau en Davalos Osio, donde no tiene membresía—, y
+  filtrar solo por membresía las habría dejado invisibles.
+
+### Costo
+La lista es texto: **~1 KB por cada 10 visitas**. Con el auto-refresco encendido
+una jornada de 8 horas son ~480 consultas de texto, del orden de **1 MB** — nada
+frente a los 5 GB de egress del plan gratuito. Las fotos, ~200 KB cada una, solo
+cuando se piden.
+
+### Archivos
+- `src/pages/admin/reportes.astro` — página (nueva).
+- `src/lib/admin-reportes-ui.ts` — controlador (nuevo).
+- `src/lib/catalogo.ts` — `listarAgentesDeCliente()` (aditivo).
+- `src/lib/historial.ts` — `marca_nombre` en la consulta y el tipo (aditivo; el
+  Historial del agente no cambia).
+- `src/lib/captura-ui.ts` — enlace "panel" en el encabezado, visible solo si el
+  agente es admin.
+- `src/styles/captura.css` — `.bs-filtros`, `.bs-auto` y el ajuste de 4 columnas.
+
+**Verificado:** `astro check` limpio, `npm run build` pasa con las 5 rutas, el
+servidor de desarrollo sirve `/admin/reportes` sin errores, y las dos consultas
+nuevas se probaron **contra la base de producción** por PostgREST antes de
+escribir la pantalla. Falta la prueba en el teléfono.
+
+---
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo
@@ -406,10 +469,9 @@ Con eso en la mano se decide qué sigue. Lo de abajo es la lista de candidatos, 
 un compromiso.
 
 ### Candidatos, por orden de valor
-1. **Pantalla de reportes.** Es lo que más falta va a hacer en cuanto haya volumen:
-   visitas por tienda y por fecha, con sus fotos. Navegar carpetas del Storage no
-   escala; el Historial sirve al agente, no a quien administra. Mauricio ya lo
-   pidió implícitamente dos veces ("¿dónde veo…?").
+1. ~~**Pantalla de reportes.**~~ **HECHA el 31 de agosto** (`/admin/reportes`, ver
+   la sección de arriba). Lo que queda es probarla en el teléfono y decidir, con
+   uso real, si le falta exportar a CSV o filtrar por marca y por cadena.
 2. **Pantalla para administrar el catálogo.** Hoy `/admin/tiendas` solo IMPORTA:
    no lista, no busca, no corrige un nombre mal escrito ni da de baja una sucursal
    cerrada. Y las altas de agentes y asignaciones son por SQL. Con 2 clientes se

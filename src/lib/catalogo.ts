@@ -175,6 +175,27 @@ export async function buscarTiendas(
     .slice(0, limite);
 }
 
+// Agentes que pueden aparecer en las visitas de UN cliente, para el filtro del
+// panel de administración.
+//
+// Son los que tienen membresía en el cliente MÁS los administradores: un admin
+// captura en cualquier empresa sin estar en `agente_cliente` (ver listarClientes),
+// así que filtrar solo por membresía dejaría fuera visitas que sí existen — pasó
+// el primer día, con visitas de un admin en un cliente donde no es miembro.
+//
+// Sin cache a propósito: el panel se usa con señal, y una membresía recién dada
+// de alta debe verse al instante, no cuando expire una copia local.
+export async function listarAgentesDeCliente(clienteId: string): Promise<Agente[]> {
+  const todos = await listarAgentes();
+  const { data, error } = await supabase
+    .from("agente_cliente")
+    .select("agente_id")
+    .eq("cliente_id", clienteId);
+  if (error) throw error;
+  const miembros = new Set((data ?? []).map((r: any) => r.agente_id));
+  return todos.filter((a) => miembros.has(a.id) || a.es_admin);
+}
+
 // Todos los agentes activos. La identificación empieza por el AGENTE y de ahí se
 // deriva la empresa (ver identidad-ui.ts): el agente sabe cómo se llama, no en qué
 // cliente está dado de alta.

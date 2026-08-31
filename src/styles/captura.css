@@ -238,4 +238,20 @@
   font-family: 'Roboto Mono', monospace; font-size: 15px;
 }
 
+/* ---- panel de administración (/admin/reportes) ---- */
+/* Los filtros se acomodan solos: cuatro en fila en la computadora, dos o uno en
+   el teléfono. Sin media queries — el ancho mínimo decide. */
+.bs-filtros { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 14px; }
+.bs-filtros .bs-campo { margin-bottom: 10px; }
+.bs-stats.bs-stats-4 { grid-template-columns: repeat(4, 1fr); }
+/* Lado derecho de la barra fija: interruptor de auto-refresco + botón. */
+.bs-queue-r { display: flex; align-items: center; gap: 12px; }
+.bs-auto { display: flex; align-items: center; gap: 7px; color: var(--paper); cursor: pointer; }
+.bs-auto input { width: 16px; height: 16px; accent-color: var(--hivis); }
+.bs-auto span {
+  font-family: 'Roboto Mono', monospace; font-size: 10px;
+  letter-spacing: .08em; text-transform: uppercase; color: rgba(243,244,241,.7);
+}
+.bs-row-meta a { color: var(--petrol); }
+
 @media (prefers-reduced-motion: reduce) { .bs-dot.is-live, .bs-spin { animation: none; } }

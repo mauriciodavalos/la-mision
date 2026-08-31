@@ -84,6 +84,8 @@ function montarEsqueleto(root: HTMLElement) {
             <p class="bs-quien">
               <span id="quien-txt"></span>
               <span class="bs-admin" id="chip-admin" hidden>admin</span>
+              <a class="bs-quien-btn" id="link-panel" href="/admin/reportes"
+                 style="text-decoration:none" hidden>panel</a>
               <button class="bs-quien-btn" id="btn-cambiar-agente">cambiar</button>
             </p>
           </div>
@@ -225,6 +227,9 @@ function actualizarQuien() {
   }
   const chip = $("#chip-admin");
   if (chip) chip.hidden = !estado.agente?.es_admin;
+  // El panel de registros del equipo solo se le ofrece a quien puede abrirlo.
+  const panel = $("#link-panel");
+  if (panel) panel.hidden = !estado.agente?.es_admin;
 }
 
 function mostrarBanner(msg: string) {
