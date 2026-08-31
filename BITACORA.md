@@ -13,22 +13,27 @@ Prototipo **fase 1**. Ya funciona punta a punta:
 - Formulario de captura offline-first en `/captura`, **verificado**: subió una visita
   real con GPS + 2 fotos WebP a Storage y filas en `visitas` / `evidencias`.
 
-**Puesta en campo (30 ago):** identidad del agente con PIN, catálogo cacheado
-offline, importador de tiendas por CSV, alta de cliente parametrizada y Service
-Worker. `astro check` limpio y `npm run build` pasa.
+**El sistema está EN PRODUCCIÓN y probado en teléfono.** Migraciones `0001`–`0006`
+aplicadas. `astro check` limpio, `npm run build` pasa, desplegado en Netlify.
 
-**Primer cliente real dado de alta (30 ago), verificado en la base:**
-- Migración `0004` aplicada a `iyduflkognbaxlckngyz`.
-- Cliente **Bikes Shot** → marca **Bikes Shot** → cadena **Bodega Aurrerá**.
-- **123 sucursales** de CDMX (33) y Estado de México (90), cargadas desde
-  `BodegaAurrera_CDMX_Edomex.csv`. Sin claves duplicadas. Sin lat/long: el CSV no
-  las trae, y el GPS real lo pone el agente al capturar.
-- Agente **Lalo** ligado al cliente, con PIN. Comprobado que el hash de WebCrypto
-  (navegador) coincide exacto con el de `set_pin_agente` (Postgres), que el PIN
-  correcto valida y el equivocado no, y que no hay ningún PIN guardado en claro.
+**Verificado en campo por Mauricio (30 ago):** el PIN funciona, el selector de
+marca funciona, y **la captura offline funciona**. Se capturaron 4 visitas de
+prueba reales (3 en Bodega Aurrerá, 1 en Sanborns) que subieron con sus fotos.
 
-**Falta probarlo en el teléfono, en campo.** El `[DEMO]` sigue ahí a propósito
-hasta que eso pase.
+**Quién opera hoy:**
+
+| Agente | PIN | Empresa | Captura |
+|---|---|---|---|
+| Lalo | 0001 | Bikes Shot | Bikes Shot @ Bodega Aurrerá (123 tiendas) |
+| Carmen | 0003 | Davalos Osio | Ondina y Anframa @ Sanborns (141 tiendas) |
+| Romina | 0004 | Davalos Osio | Ondina y Anframa @ Sanborns |
+| Mau | 0002 | — | **ADMIN**: todas las marcas y puntos de venta |
+
+**Datos en la base:** 2 clientes, 3 marcas, 2 cadenas, **264 tiendas**, 4 agentes,
+5 asignaciones. El tenant `[DEMO]` ya se borró.
+
+**Las visitas están en CERO a propósito:** las 4 de prueba se borraron al cerrar la
+sesión. Lo que se capture de aquí en adelante es dato de producción.
 
 ---
 
@@ -217,6 +222,37 @@ grande lo exija y lo pague.
 
 ---
 
+## Sesión del 30 de agosto — commits
+
+En orden. Cada commit trae en su mensaje el porqué a detalle.
+
+| Commit | Qué |
+|---|---|
+| `a002c35` | Identidad con PIN, catálogo offline, importador CSV, Service Worker |
+| `80d5ed8` | Rutas de Storage legibles por slug de cliente y cadena |
+| `fba7919` | La fecha de captura va en la carpeta de la tienda |
+| `3b4f2df` | Retención de la cola local (48 h) y pestaña de Historial |
+| `6b965a5` | Asignación por marca y cadena, y rol de administrador |
+| `72f81e0` | El importador acepta `nombre_interno` como columna de nombre |
+| `0b3e952` | La identificación empieza por el agente, no por la empresa |
+| `d647995` | Fuera el botón de liberar espacio; contraste de "Ver fotos" |
+
+**Migraciones aplicadas hoy:** `0004` (PIN), `0005` (slugs), `0006` (asignaciones).
+
+**Tres bugs latentes encontrados y cerrados**, todos de la misma familia — adivinar
+un valor cuando hay varias opciones:
+- `clientes[0]`: el cliente salía del primero por orden alfabético.
+- `marcas[0]`: lo mismo con la marca. Con Ondina y Anframa, Carmen habría capturado
+  siempre en Anframa sin darse cuenta.
+- La cola local nunca soltaba nada: `cola.eliminar()` existía pero no se llamaba
+  desde ningún lado. El teléfono se habría llenado hasta romper la captura.
+
+**Dos bugs del importador**, encontrados con archivos reales: `No. Tienda` no
+empataba por el punto, y `nombre_interno` no estaba en los sinónimos — habría
+cargado las 141 sucursales de Sanborns sin nombre.
+
+---
+
 ## Cómo correr
 
 ```bash
@@ -234,38 +270,87 @@ prueba en el sitio de Netlify.
 
 Base de datos (CLI ya vinculado al proyecto):
 ```bash
-npx supabase db push                                        # aplica migraciones
-npx supabase db query --linked -f supabase/alta_cliente.sql # alta de cliente real
-npx supabase db query --linked -f supabase/seed_demo.sql    # carga tenant [DEMO]
+npx supabase db push                                         # aplica migraciones
+npx supabase db query --linked -f supabase/alta_cliente.sql  # alta de empresa + marca + cadena + agente
+npx supabase db query --linked -f supabase/alta_agente.sql   # sumar agente y asignarle marca/cadena
+npx supabase db query --linked -f supabase/limpieza_demo.sql # borrar el tenant de prueba
 ```
+
+Storage por CLI (experimental, pero funciona):
+```bash
+npx supabase storage ls "ss:///evidencias/" --linked --experimental -r
+npx supabase storage mv "ss:///evidencias/<origen>" "ss:///evidencias/<destino>" --linked --experimental
+```
+Ojo: el CLI **no** borra archivos que empiezan con punto (`.emptyFolderPlaceholder`);
+esos se quitan desde el dashboard.
+
+Al limpiar visitas de prueba, **el orden importa**: primero borrar las carpetas en
+el dashboard, luego `delete from public.visitas;`. Al revés, las fotos se quedan
+huérfanas ocupando cuota. (Decidido el 30 ago: se hace a mano, sin trigger.)
 
 Astro 7 corre el dev server en segundo plano: `npx astro dev status | stop | logs`.
 
 ---
 
-## Tenant demo
+## Tenant demo — ya borrado
 
-Existe `[DEMO] Cliente de prueba` (marca con 2 fotos, cadena, 2 tiendas, agente).
-Para borrarlo (cascade limpia todo lo suyo):
-```sql
-delete from public.clientes where nombre = '[DEMO] Cliente de prueba';
-```
+`[DEMO] Cliente de prueba` se eliminó el 30 de agosto, una vez verificado el flujo
+con clientes reales. El seed (`seed_demo.sql`) y el script de limpieza
+(`limpieza_demo.sql`) se quedan en el repo por si hace falta volver a montar un
+entorno de prueba desde cero.
 
 ---
 
-## Pendientes (siguiente sesión)
+## Dónde retomamos (siguiente sesión)
 
-1. **Probar en el teléfono con Lalo** y capturar una visita real en una Bodega
-   Aurrerá. Hasta entonces NO borrar el `[DEMO]`.
-2. **Probar offline de verdad:** capturar en modo avión, cerrar la pestaña, reabrir
-   (debe abrir gracias al SW), reconectar y ver que sube sola.
-3. **Smoke test del importador CSV** en `/admin/tiendas` con `PUBLIC_ADMIN=1`: la
-   primera carga de tiendas se hizo por SQL generado, así que la página todavía no
-   se ha ejercitado contra la base. Reimportar el mismo CSV no debe duplicar.
-4. **URL por cliente** (slug → `cliente_id`): quita el selector de cliente y le da a
-   cada empresa su dirección. Es media hora. Ver la nota de decisión pendiente.
-5. **Iconos PNG del manifest** (192 y 512 px) para que instale bien en iOS.
-6. **Enlazar `index.astro` → `/captura`** (hoy sigue la bienvenida de Astro).
-7. **Mover el proyecto fuera de OneDrive.**
-8. **Fase 2:** auth (Supabase Auth), activar RLS (`9999_rls_fase2.sql.txt`), roles,
-   formatos configurables desde UI, reportes por cliente.
+### Lo que está corriendo ahora mismo
+**Lalo, Carmen y Romina están capturando en campo.** La decisión al cerrar la
+sesión del 30 de agosto fue **dejarlos trabajar unos días antes de tocar nada**:
+se aprende más de tres días de uso real que de adivinar mejoras en el escritorio.
+
+**Primera pregunta al retomar:** ¿qué pasó en campo? Antes de proponer nada,
+revisar cuántas visitas hay, de quién, con cuántas fotos, y si hay visitas atoradas
+en estado `error`:
+
+```bash
+npx supabase db query --linked "select a.nombre, c.nombre as cliente, count(*) as visitas, min(v.capturada_en) as primera, max(v.capturada_en) as ultima from visitas v join agentes a on a.id=v.agente_id join clientes c on c.id=v.cliente_id group by 1,2 order by 1;"
+```
+
+Con eso en la mano se decide qué sigue. Lo de abajo es la lista de candidatos, no
+un compromiso.
+
+### Candidatos, por orden de valor
+1. **Pantalla de reportes.** Es lo que más falta va a hacer en cuanto haya volumen:
+   visitas por tienda y por fecha, con sus fotos. Navegar carpetas del Storage no
+   escala; el Historial sirve al agente, no a quien administra. Mauricio ya lo
+   pidió implícitamente dos veces ("¿dónde veo…?").
+2. **Pantalla para administrar el catálogo.** Hoy `/admin/tiendas` solo IMPORTA:
+   no lista, no busca, no corrige un nombre mal escrito ni da de baja una sucursal
+   cerrada. Y las altas de agentes y asignaciones son por SQL. Con 2 clientes se
+   aguanta; con el tercero, no.
+3. **Smoke test del importador CSV.** Las dos cargas (123 + 141 tiendas) se
+   hicieron por SQL generado, así que `/admin/tiendas` **nunca se ha ejercitado
+   contra la base**. Correrlo con `PUBLIC_ADMIN=1` y reimportar el mismo CSV: no
+   debe duplicar.
+4. **URL por cliente** (slug → `cliente_id`). Los slugs ya existen (`bikes-shot`,
+   `davalos-osio`); falta resolver el tenant desde la URL. Le da a cada empresa su
+   dirección y quita el selector de empresa para el admin.
+5. **Borrar una visita debería borrar sus fotos.** Van tres veces que tablas y
+   Storage se desincronizan al limpiar. **Se decidió NO hacerlo por ahora** (30
+   ago): mientras el borrado sea manual y de pruebas, el orden correcto —primero
+   las carpetas en el dashboard, luego el `delete` en SQL— es suficiente. Retomar
+   si aparece evidencia inconsistente con datos reales.
+6. **Iconos PNG del manifest** (192 y 512 px) para que instale bien en iOS.
+7. **Enlazar `index.astro` → `/captura`** (hoy sigue la bienvenida de Astro) y
+   borrar `/prueba-conexion`, que era temporal.
+8. **Mover el proyecto fuera de OneDrive.**
+9. **Fase 2:** Supabase Auth (que **sustituye** al PIN, no convive con él), activar
+   RLS (`9999_rls_fase2.sql.txt`, ya actualizado para slugs, asignaciones y admin),
+   formatos configurables desde UI, reportes por cliente, facturación.
+
+### Costos que hay que vigilar
+- **Storage:** ~380 KB por visita (2 fotos WebP). El plan gratuito da 1 GB ≈ **2,600
+  visitas**. Con 3 agentes a 20 visitas diarias, ~2 meses. La salida barata es
+  Cloudflare R2, que no cobra egress.
+- **Pausado por inactividad:** el proyecto de Supabase se duerme a los 7 días sin
+  actividad. Mientras los agentes capturen a diario no aplica; si paran, sí.
