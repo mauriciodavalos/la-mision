@@ -9,6 +9,7 @@
 
 import { supabase } from "../db/supabase";
 import * as cola from "./cola";
+import { purgarSilencioso } from "./retencion";
 import type { VisitaPendiente } from "./tipos";
 
 const BUCKET = "evidencias";
@@ -87,6 +88,15 @@ async function subirVisita(v: VisitaPendiente): Promise<void> {
   //    upsert:true -> reintentar sobre la misma ruta no duplica ni falla.
   const rutas: Record<string, string> = {};
   for (const foto of v.fotos) {
+    // Red de seguridad: la retención solo libera blobs de visitas YA confirmadas,
+    // que nunca se reintentan. Si aun así llegara aquí una foto sin imagen, hay
+    // que gritar, no subir un archivo vacío encima del bueno.
+    if (!foto.blob) {
+      throw new Error(
+        `La foto ${foto.tipo} ya no tiene imagen en el teléfono (liberada por retención). ` +
+          `No se sube para no pisar la que ya está en el servidor.`
+      );
+    }
     const ruta = rutaFoto(v, foto);
     const { error } = await supabase.storage.from(BUCKET).upload(ruta, foto.blob, {
       contentType: "image/webp",
@@ -164,6 +174,8 @@ export async function sincronizar(): Promise<void> {
   } finally {
     sincronizando = false;
     notificar();
+    // Después de subir es el mejor momento para soltar lo que ya está confirmado.
+    await purgarSilencioso();
   }
 }
 

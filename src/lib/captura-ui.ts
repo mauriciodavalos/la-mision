@@ -10,15 +10,31 @@ import * as cola from "./cola";
 import { iniciarSync, sincronizar } from "./sync";
 import { asegurarIdentidad, type Contexto } from "./identidad-ui";
 import { olvidarIdentidad } from "./identidad";
+import {
+  DIAS_CONSERVAR_REGISTRO,
+  HORAS_CONSERVAR_FOTOS,
+  kbLegible,
+  purgar,
+  purgarSilencioso,
+  simular,
+} from "./retencion";
+import {
+  fotosDeVisita,
+  hoyLocal,
+  hoyMenosDias,
+  listarVisitas,
+} from "./historial";
 import type { Agente, Cliente, FotoLocal, Marca, Tienda, VisitaPendiente } from "./tipos";
 
 // ---- estado ----
+type Vista = "captura" | "registros" | "historial";
+
 const estado = {
   marcas: [] as Marca[],
   cliente: null as Cliente | null,
   marca: null as Marca | null,
   agente: null as Agente | null,
-  vista: "captura" as "captura" | "registros",
+  vista: "captura" as Vista,
   tienda: null as Tienda | null,
   fotos: {} as Record<string, FotoLocal>,       // por tipo de slot
   previews: {} as Record<string, string>,        // objectURLs por tipo (para revocar)
@@ -79,13 +95,15 @@ function montarEsqueleto(root: HTMLElement) {
         </div>
         <nav class="bs-tabs">
           <button class="bs-tab is-active" id="tab-captura">Capturar</button>
-          <button class="bs-tab" id="tab-registros">Registros (<span id="tab-count">0</span>)</button>
+          <button class="bs-tab" id="tab-registros">En el equipo (<span id="tab-count">0</span>)</button>
+          <button class="bs-tab" id="tab-historial">Historial</button>
         </nav>
       </div>
     </header>
     <div id="banner"></div>
     <main class="bs-shell" id="vista-captura"><div class="bs-body" id="form-body"></div></main>
     <main class="bs-shell is-wide" id="vista-registros" hidden><div class="bs-body" id="registros-body"></div></main>
+    <main class="bs-shell is-wide" id="vista-historial" hidden><div class="bs-body" id="historial-body"></div></main>
     <div class="bs-queue">
       <div class="bs-queue-in">
         <div class="bs-queue-l">
@@ -99,6 +117,7 @@ function montarEsqueleto(root: HTMLElement) {
 
   $("#tab-captura")!.addEventListener("click", () => cambiarVista("captura"));
   $("#tab-registros")!.addEventListener("click", () => cambiarVista("registros"));
+  $("#tab-historial")!.addEventListener("click", () => cambiarVista("historial"));
   $("#btn-sync")!.addEventListener("click", () => void sincronizar());
   $("#btn-cambiar-agente")!.addEventListener("click", () => void cambiarAgente());
 }
@@ -122,14 +141,17 @@ async function cambiarAgente() {
   location.reload();
 }
 
-function cambiarVista(v: "captura" | "registros") {
+function cambiarVista(v: Vista) {
   estado.vista = v;
   $("#tab-captura")!.classList.toggle("is-active", v === "captura");
   $("#tab-registros")!.classList.toggle("is-active", v === "registros");
-  $("#shell-head")!.classList.toggle("is-wide", v === "registros");
+  $("#tab-historial")!.classList.toggle("is-active", v === "historial");
+  $("#shell-head")!.classList.toggle("is-wide", v !== "captura");
   $("#vista-captura")!.hidden = v !== "captura";
   $("#vista-registros")!.hidden = v !== "registros";
+  $("#vista-historial")!.hidden = v !== "historial";
   if (v === "registros") void refrescarRegistros();
+  if (v === "historial") montarHistorial();
 }
 
 // ---- online / offline ----
@@ -604,6 +626,11 @@ async function refrescarRegistros() {
       const thumbs = v.fotos
         .slice(0, 2)
         .map((f) => {
+          // Sin blob = la retención ya soltó la imagen (la foto vive en el
+          // servidor). Se muestra un hueco, no una imagen rota.
+          if (!f.blob) {
+            return `<div class="bs-thumb is-liberada" title="Foto en el servidor">↑</div>`;
+          }
           const u = URL.createObjectURL(f.blob);
           regUrls.push(u);
           return `<img class="bs-thumb" src="${u}" alt="${esc(f.tipo)}">`;
@@ -627,10 +654,168 @@ async function refrescarRegistros() {
     })
     .join("");
 
+  const liberadas = visitas.reduce(
+    (s, v) => s + v.fotos.filter((f) => !f.blob).length,
+    0
+  );
+
   cont.innerHTML =
     stats +
     `<div class="bs-rows">${filas}</div>
-     <p class="bs-note">Cada registro guarda la hora real de captura y la de subida por separado. Si hay diferencia entre las dos, el trabajo se hizo en tienda y se sincronizó después — no es una falla.</p>`;
+     <p class="bs-note">Esta pestaña es lo que vive en <strong>este equipo</strong>. Cada registro guarda la hora real de captura y la de subida por separado: si hay diferencia entre las dos, el trabajo se hizo en tienda y se sincronizó después — no es una falla.<br><br>
+     Las fotos se conservan en el teléfono ${HORAS_CONSERVAR_FOTOS} horas después de que el servidor las confirma${liberadas ? `; ${liberadas} ya se liberaron (la flecha ↑)` : ""}, y el registro local ${DIAS_CONSERVAR_REGISTRO} días. Lo de más atrás se consulta en <strong>Historial</strong>. Nada sin confirmar se borra jamás.</p>
+     <button class="bs-toggle" id="btn-liberar" style="width:100%;margin-top:14px">Liberar espacio ahora</button>
+     <p class="bs-note" id="msg-liberar" style="border:none;padding-top:8px"></p>`;
+
+  $("#btn-liberar")!.addEventListener("click", async () => {
+    const msg = $("#msg-liberar")!;
+    const previo = await simular();
+    if (!previo.fotosLiberadas && !previo.registrosBorrados) {
+      msg.textContent = "No hay nada que liberar: todo lo guardado es reciente o está sin confirmar.";
+      return;
+    }
+    const r = await purgar();
+    msg.textContent = `Liberados ${kbLegible(r.bytesLiberados)} — ${r.fotosLiberadas} foto(s) y ${r.registrosBorrados} registro(s) viejos.`;
+    await refrescarQueue();
+    await refrescarRegistros();
+  });
+}
+
+// ---- historial (consultado al servidor por rango de fechas) ----
+//
+// La cola local solo conserva lo reciente; el historial largo se le pregunta a
+// Supabase cuando el agente lo pide. Las FOTOS no se cargan solas: cada una son
+// ~200 KB de egress, así que se piden visita por visita al tocar "ver fotos".
+let historialMontado = false;
+
+function montarHistorial() {
+  if (historialMontado) return;
+  historialMontado = true;
+  const body = $("#historial-body")!;
+  body.innerHTML = `
+    <section class="bs-field">
+      <div class="bs-legend"><span class="bs-num">··</span><h2 class="bs-label">Rango de fechas</h2></div>
+      <div class="bs-inner">
+        <div class="bs-rango">
+          <label class="bs-campo" style="flex:1">
+            <span class="bs-campo-l">Desde</span>
+            <input class="bs-input" type="date" id="hist-desde" value="${hoyMenosDias(7)}">
+          </label>
+          <label class="bs-campo" style="flex:1">
+            <span class="bs-campo-l">Hasta</span>
+            <input class="bs-input" type="date" id="hist-hasta" value="${hoyLocal()}">
+          </label>
+        </div>
+        <label class="bs-check">
+          <input type="checkbox" id="hist-solo-mias" checked>
+          <span>Solo mis visitas</span>
+        </label>
+        <button class="bs-submit" id="btn-historial" style="margin-top:6px">Buscar</button>
+      </div>
+    </section>
+    <div id="hist-resultados"></div>`;
+
+  $("#btn-historial")!.addEventListener("click", () => void buscarHistorial());
+  void buscarHistorial();
+}
+
+async function buscarHistorial() {
+  const cont = $("#hist-resultados")!;
+  if (!estado.cliente) return;
+  if (!navigator.onLine) {
+    cont.innerHTML = `<section class="bs-field"><p class="bs-hint" style="margin-left:0">
+      El historial se consulta al servidor, así que necesita señal. Lo que capturaste
+      sin conexión está en <strong>En el equipo</strong>.</p></section>`;
+    return;
+  }
+
+  const desde = ($("#hist-desde") as HTMLInputElement).value;
+  const hasta = ($("#hist-hasta") as HTMLInputElement).value;
+  const soloMias = ($("#hist-solo-mias") as HTMLInputElement).checked;
+  if (!desde || !hasta || desde > hasta) {
+    cont.innerHTML = `<section class="bs-field"><p class="bs-hint" style="margin-left:0;color:#C4462B">
+      Revisa el rango: la fecha de inicio no puede ser posterior a la del final.</p></section>`;
+    return;
+  }
+
+  cont.innerHTML = `<section class="bs-field"><p class="bs-hint" style="margin-left:0">Consultando…</p></section>`;
+
+  try {
+    const visitas = await listarVisitas(
+      estado.cliente.id,
+      desde,
+      hasta,
+      soloMias ? estado.agente?.id : undefined
+    );
+    if (visitas.length === 0) {
+      cont.innerHTML = `<div class="bs-empty"><p class="bs-empty-h">Sin visitas en ese rango</p>
+        <p class="bs-empty-p">Prueba con otras fechas o desmarca "solo mis visitas".</p></div>`;
+      return;
+    }
+
+    const filas = visitas
+      .map((v) => {
+        const gps = v.latitud != null ? `${v.latitud.toFixed(4)}, ${v.longitud!.toFixed(4)}` : "sin gps";
+        return `
+          <article class="bs-row" style="grid-template-columns:1fr">
+            <div>
+              <div class="bs-row-name">${esc(v.tienda_nombre ?? "(sin nombre)")}</div>
+              <div class="bs-row-meta">No. ${esc(v.tienda_clave)}${
+                v.cadena_nombre ? " · " + esc(v.cadena_nombre) : ""
+              } · ${fmtFechaHora(v.capturada_en)}<br>${gps} · ${v.fotos} foto(s)${
+          v.agente_nombre && !soloMias ? " · " + esc(v.agente_nombre) : ""
+        }</div>
+              ${v.notas ? `<div class="bs-row-meta" style="color:#14181B">“${esc(v.notas)}”</div>` : ""}
+              <button class="bs-clear" data-visita="${esc(v.id)}" style="margin-top:8px">Ver fotos</button>
+              <div class="bs-thumbs" id="fotos-${esc(v.id)}" style="margin-top:8px"></div>
+            </div>
+          </article>`;
+      })
+      .join("");
+
+    cont.innerHTML = `
+      <div class="bs-stats">
+        <div class="bs-stat"><div class="bs-stat-n">${visitas.length}</div><div class="bs-stat-k">Visitas</div></div>
+        <div class="bs-stat"><div class="bs-stat-n">${new Set(visitas.map((v) => v.tienda_clave)).size}</div><div class="bs-stat-k">Tiendas</div></div>
+        <div class="bs-stat"><div class="bs-stat-n">${visitas.reduce((s, v) => s + v.fotos, 0)}</div><div class="bs-stat-k">Fotos</div></div>
+      </div>
+      <div class="bs-rows">${filas}</div>
+      <p class="bs-note">Las fotos no se descargan solas: cada una pesa unos 200 KB y se piden solo al tocar “Ver fotos”, para no gastar datos del teléfono ni cuota del servidor.</p>`;
+
+    cont.querySelectorAll<HTMLButtonElement>("[data-visita]").forEach((btn) => {
+      btn.addEventListener("click", () => void verFotos(btn));
+    });
+  } catch (e) {
+    cont.innerHTML = `<section class="bs-field"><p class="bs-hint" style="margin-left:0;color:#C4462B">
+      No se pudo consultar el historial: ${esc(e instanceof Error ? e.message : String(e))}</p></section>`;
+  }
+}
+
+async function verFotos(btn: HTMLButtonElement) {
+  const id = btn.dataset.visita!;
+  const cont = document.getElementById("fotos-" + id);
+  if (!cont) return;
+  if (cont.childElementCount > 0) {
+    // Segundo toque: ocultar, para no dejar la lista pesada.
+    cont.innerHTML = "";
+    btn.textContent = "Ver fotos";
+    return;
+  }
+  btn.textContent = "Cargando…";
+  try {
+    const fotos = await fotosDeVisita(id);
+    cont.innerHTML = fotos
+      .map(
+        (f) =>
+          `<a href="${f.url}" target="_blank" rel="noopener">
+             <img class="bs-thumb" src="${f.url}" alt="${esc(f.tipo)}" loading="lazy">
+           </a>`
+      )
+      .join("");
+    btn.textContent = fotos.length ? "Ocultar fotos" : "Sin fotos";
+  } catch {
+    btn.textContent = "No se pudieron cargar";
+  }
 }
 
 // ---- barra de cola ----
@@ -675,6 +860,9 @@ export async function init() {
   });
 
   await cargarContexto(ctx);
+  // Suelta lo que ya está confirmado y viejo antes de nada, para que el teléfono
+  // no arranque la jornada con la memoria llena.
+  await purgarSilencioso();
   await refrescarQueue();
   iniciarSync();
 }

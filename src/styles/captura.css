@@ -210,4 +210,14 @@
 }
 .bs-pin-box:focus { outline: 2px solid var(--petrol); outline-offset: 1px; border-color: var(--petrol); }
 
+/* ---- historial y retención ---- */
+.bs-rango { display: flex; gap: 12px; }
+.bs-rango .bs-campo { margin-bottom: 8px; }
+/* Hueco de una foto que ya se liberó del teléfono (vive en el servidor). */
+.bs-thumb.is-liberada {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--steel); border: 1px dashed var(--line); color: var(--ink-soft);
+  font-family: 'Roboto Mono', monospace; font-size: 15px;
+}
+
 @media (prefers-reduced-motion: reduce) { .bs-dot.is-live, .bs-spin { animation: none; } }

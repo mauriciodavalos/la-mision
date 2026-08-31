@@ -82,7 +82,12 @@ export interface Identidad {
 export interface FotoLocal {
   id: string;            // UUID generado en el cliente (idempotencia)
   tipo: string;          // referencia al SlotFoto.tipo de la config
-  blob: Blob;            // imagen ya comprimida a WebP
+  // La imagen comprimida. Se LIBERA (queda undefined) 48 h después de que el
+  // servidor confirmó la visita, para no llenar el teléfono — la foto ya vive en
+  // Supabase. Ver retencion.ts. Mientras la visita no esté confirmada, el blob
+  // NUNCA se toca.
+  blob?: Blob;
+  liberada?: boolean;    // true si el blob se soltó por retención
   ancho: number;
   alto: number;
   bytes: number;

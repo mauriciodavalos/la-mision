@@ -110,6 +110,28 @@ hasta que eso pase.
     fallar (respaldo en `rutaFoto`). Nunca perder evidencia.
   - El mismo slug sirve para la URL por empresa, que era el otro pendiente.
 
+- **Retención en la cola local (`retencion.ts`).** La cola nunca soltaba nada:
+  `cola.eliminar()` existía pero no se llamaba desde ningún lado, así que las fotos
+  se quedaban completas en el teléfono para siempre (~380 KB por visita, ~230 MB al
+  mes con 20 visitas diarias) hasta que el navegador rechazara escrituras por cuota
+  — rompiendo justo lo que no puede fallar. Política:
+  1. Visita **no confirmada**: intocable, sin importar su edad. Sin excepciones.
+  2. Confirmada + **48 h**: se sueltan los blobs (ya están en Supabase). El registro
+     sigue visible con tienda, hora y GPS; solo pierde la miniatura.
+  3. Confirmada + **30 días**: se borra el registro local.
+  Corre al arrancar y después de cada sync, más un botón "liberar espacio ahora".
+  `subirVisita` lanza si encuentra una foto sin blob, para nunca pisar con un
+  archivo vacío el que ya está bien en el servidor.
+- **Pestaña Historial (`historial.ts`).** Consulta las visitas al servidor por
+  rango de fechas, con filtro "solo mis visitas". Es lo que permite que la cola
+  local sea corta. **Las fotos NO se cargan solas**: la lista es texto (unos KB) y
+  cada foto son ~200 KB de egress, así que se piden visita por visita al tocar
+  "ver fotos", con URL firmada de una hora (el bucket es privado). Si se cargaran
+  las miniaturas de todo, una semana de trabajo serían decenas de MB por cada vez
+  que alguien abre la pestaña.
+  La pestaña "Registros" se renombró a **"En el equipo"** para que quede claro que
+  muestra lo local, no lo que hay en el servidor — esa confusión ya costó una duda.
+
 ### Pendiente de decidir — una base de datos por cliente
 Se planteó dar URL y base independientes por marca. Análisis: **URL por cliente sí**
 (slug → `cliente_id`; barato, y de paso fija el tenant), **base por cliente no**:
