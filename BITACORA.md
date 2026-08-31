@@ -343,6 +343,26 @@ auditar exhibición. Hay que decidir entre reintentar la ubicación en segundo p
 adjuntarla al sincronizar, o al menos avisar al agente en pantalla que se guardó sin
 GPS. Se revisa con más datos, no con estas dos.
 
+### Limpieza al cerrar
+
+Se borraron las **4 visitas de prueba** y quedó solo la de Lalo en BA Flores Magón,
+la única captura de campo con contenido real. Verificado contra la base y contra el
+bucket: **1 visita, 2 evidencias, 2 archivos, 344 KB** — que confirma el estimado de
+~380 KB por visita con el que se calculó el consumo del plan gratuito.
+
+Cómo se hizo, para repetirlo:
+- Las filas, con un `DELETE` por PostgREST sobre `visitas`. **`evidencias` cae en
+  cascada** (`on delete cascade` en `0001`), así que no hay que borrarlas aparte.
+- Las fotos, **a mano en el dashboard**. `0003_acceso_fase1.sql` solo da `insert`,
+  `select` y `update` sobre el bucket a la key publishable: **no hay policy de
+  `delete`**, y no conviene abrirla —esa key va en el bundle público— ni traer la
+  `service_role` al disco para tres carpetas.
+
+Van **cuatro veces** que tablas y Storage se desincronizan al limpiar. Sigue sin
+justificar código (el borrado es manual y de pruebas), pero cuando lo amerite la
+forma correcta es una **Edge Function** que borre los objetos y luego la fila, usando
+la `service_role` del lado del servidor. Ver el candidato 5.
+
 ### Decisión al cerrar (31 ago)
 
 **No tocar nada todavía.** Un día de uso —con una sola visita de campo genuina— no
@@ -356,9 +376,9 @@ siendo el candidato número uno.
 
 ### Lo que está corriendo ahora mismo
 
-**Lalo, Carmen y Romina están capturando en campo.** Al 31 de agosto hay **5 visitas**
-en la base (ver la sección de arriba): una de campo real de Lalo y cuatro de prueba.
-La decisión, sostenida dos sesiones seguidas, es **dejarlos trabajar unos días antes
+**Lalo, Carmen y Romina están capturando en campo.** Al cerrar el 31 de agosto la
+base tiene **1 visita**: la de Lalo en BA Flores Magón. Las cuatro de prueba se
+borraron, con sus fotos. La decisión, sostenida dos sesiones seguidas, es **dejarlos trabajar unos días antes
 de tocar nada**: se aprende más de tres días de uso real que de adivinar mejoras en
 el escritorio.
 
