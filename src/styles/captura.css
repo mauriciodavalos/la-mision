@@ -254,4 +254,17 @@
 }
 .bs-row-meta a { color: var(--petrol); }
 
+/* ---- ubicación obligatoria y errores de foto ---- */
+/* Nota dentro del recuadro oscuro del GPS. */
+.bs-gps-nota { font-size: 12px; line-height: 1.5; color: rgba(243,244,241,.75); margin: 12px 0 0; }
+.bs-gps-nota.is-alerta { color: #F0B8A8; }
+/* Por qué falló una foto: antes esto no se decía y la foto solo no aparecía. */
+.bs-foto-error { font-size: 12.5px; line-height: 1.5; color: var(--alert); margin: 8px 0 0; }
+/* Aviso de captura recuperada tras un cierre inesperado. */
+.bs-recuperar { background: var(--hivis); color: var(--petrol-dp); padding: 14px 20px; }
+.bs-recuperar-t { font-size: 13px; line-height: 1.5; margin: 0; }
+.bs-recuperar-b { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.bs-recuperar .bs-mini { background: transparent; border-color: var(--petrol-dp); color: var(--petrol-dp); }
+.bs-recuperar .bs-mini:hover { background: var(--petrol-dp); color: var(--hivis); }
+
 @media (prefers-reduced-motion: reduce) { .bs-dot.is-live, .bs-spin { animation: none; } }

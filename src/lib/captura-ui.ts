@@ -4,7 +4,13 @@
 // este script sobre #app.
 
 import { comprimir, kb } from "./comprimir";
-import { obtenerUbicacion, type Ubicacion } from "./gps";
+import {
+  explicar,
+  iniciarSeguimiento,
+  obtenerUbicacion,
+  type MotivoGps,
+  type Ubicacion,
+} from "./gps";
 import { buscarTiendas, listarMarcas, listarTiendas } from "./catalogo";
 import * as cola from "./cola";
 import { iniciarSync, sincronizar } from "./sync";
@@ -21,7 +27,7 @@ import {
   hoyMenosDias,
   listarVisitas,
 } from "./historial";
-import type { Agente, Cliente, FotoLocal, Marca, Tienda, VisitaPendiente } from "./tipos";
+import type { Agente, Borrador, Cliente, FotoLocal, Marca, Tienda, VisitaPendiente } from "./tipos";
 
 // ---- estado ----
 type Vista = "captura" | "registros" | "historial";
@@ -38,10 +44,23 @@ const estado = {
   datos: {} as Record<string, unknown>,          // campos + checklist
   notas: "",
   gps: null as Ubicacion | null,
+  gpsMotivo: null as MotivoGps | null,      // por qué no hay ubicación
+  gpsBuscando: false,
   cargandoFoto: {} as Record<string, boolean>,
+  erroresFoto: {} as Record<string, string>, // por qué falló una foto, por slot
 };
 
 let regUrls: string[] = []; // objectURLs de la vista Registros (para revocar)
+
+// Seguimiento de GPS vivo mientras dura la captura (ver arrancarSeguimientoGps).
+let detenerGps: (() => void) | null = null;
+// Guardado del borrador con retardo, para no escribir en IndexedDB en cada tecla.
+let debounceBorrador: number | undefined;
+
+// Arriba de esta precisión se avisa, pero NO se bloquea: una lectura de ±300 m
+// sigue diciendo en qué plaza está el agente, y exigir precisión fina dentro de
+// una tienda es exigir lo que el teléfono no puede dar.
+const PRECISION_AVISO = 100;
 
 // ---- helpers ----
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) =>
@@ -137,6 +156,8 @@ async function cambiarAgente() {
     return;
   }
   if (!confirm("¿Cambiar de agente? Se pedirá el PIN de nuevo.")) return;
+  detenerGps?.();
+  detenerGps = null;
   await olvidarIdentidad();
   location.reload();
 }
@@ -345,6 +366,7 @@ function renderFormulario() {
   }
   $("#notas")!.addEventListener("input", (e) => {
     estado.notas = (e.target as HTMLTextAreaElement).value;
+    programarBorrador();
   });
 
   for (const f of fotos) montarSlot(f.tipo, !!f.ancha, f.etiqueta);
@@ -356,6 +378,7 @@ function renderFormulario() {
   renderGps();
   actualizarValidacion();
   void refrescarGps();
+  arrancarSeguimientoGps();
 }
 
 // Cambiar de marca cambia también las cadenas —y por lo tanto las tiendas— que le
@@ -398,6 +421,7 @@ function renderTienda() {
       estado.tienda = null;
       renderTienda();
       actualizarValidacion();
+      void guardarBorrador();
     });
   } else {
     cont.innerHTML = `
@@ -480,7 +504,12 @@ function renderSlot(tipo: string, ancha: boolean, etiqueta: string) {
              <button type="button" class="bs-retake" id="retake-${esc(tipo)}">Repetir</button>`
           : ""
       }
-    </div>`;
+    </div>
+    ${
+      estado.erroresFoto[tipo]
+        ? `<p class="bs-foto-error">${esc(estado.erroresFoto[tipo])}</p>`
+        : ""
+    }`;
 
   const input = document.getElementById("input-" + tipo) as HTMLInputElement;
   const btn = document.getElementById("btn-" + tipo)!;
@@ -492,6 +521,7 @@ function renderSlot(tipo: string, ancha: boolean, etiqueta: string) {
     input.value = "";
     if (!file) return;
     estado.cargandoFoto[tipo] = true;
+    delete estado.erroresFoto[tipo];
     renderSlot(tipo, ancha, etiqueta);
     try {
       const c = await comprimir(file);
@@ -507,8 +537,17 @@ function renderSlot(tipo: string, ancha: boolean, etiqueta: string) {
         bytesOriginal: c.bytesOriginal,
       };
       estado.previews[tipo] = URL.createObjectURL(c.blob);
-    } catch {
+      // La foto ya comprimida se resguarda de inmediato: si el navegador cierra
+      // la pestaña (memoria), no se pierde el trabajo.
+      void guardarBorrador();
+    } catch (e) {
+      // Antes esto se tragaba el error y la foto simplemente no aparecía, sin
+      // explicación. Ahora se dice qué pasó y se puede reintentar.
       delete estado.fotos[tipo];
+      estado.erroresFoto[tipo] =
+        e instanceof Error && /memor|allocat/i.test(e.message)
+          ? "El teléfono se quedó sin memoria al procesar la foto. Cierra otras apps o pestañas y vuelve a intentar."
+          : "No se pudo procesar la foto. Vuelve a intentar.";
     } finally {
       estado.cargandoFoto[tipo] = false;
       renderSlot(tipo, ancha, etiqueta);
@@ -560,23 +599,89 @@ function montarChecklistItem(it: { clave: string; etiqueta: string }) {
 }
 
 // ---- gps ----
+// Pide la ubicación a mano: al montar el formulario y cada vez que el agente toca
+// el botón. Ese toque es además el gesto de usuario que iOS exige para volver a
+// preguntar por el permiso una vez que se negó.
 async function refrescarGps() {
-  estado.gps = await obtenerUbicacion();
+  estado.gpsBuscando = true;
+  estado.gpsMotivo = null;
   renderGps();
+
+  const r = await obtenerUbicacion();
+  estado.gpsBuscando = false;
+  if (r.ok) {
+    estado.gps = r.ubicacion;
+    estado.gpsMotivo = null;
+  } else {
+    // Una lectura buena previa NO se tira porque un reintento haya fallado.
+    estado.gpsMotivo = r.motivo;
+  }
+  renderGps();
+  actualizarValidacion();
+}
+
+// Seguimiento continuo mientras el agente llena el formulario: le da al GPS toda
+// la visita para fijar posición, en vez de un tiro de segundos al final. Es lo
+// que hace viable exigir ubicación adentro de una tienda.
+function arrancarSeguimientoGps() {
+  detenerGps?.();
+  detenerGps = iniciarSeguimiento(
+    (u) => {
+      estado.gps = u;
+      estado.gpsMotivo = null;
+      renderGps();
+      actualizarValidacion();
+    },
+    (m) => {
+      // Solo se reporta si todavía no hay nada: un error del watch no debe
+      // borrar una posición que ya se consiguió.
+      if (!estado.gps) {
+        estado.gpsMotivo = m;
+        renderGps();
+        actualizarValidacion();
+      }
+    }
+  );
 }
 
 function renderGps() {
   const cont = $("#bloque-gps");
   if (!cont) return;
   const g = estado.gps;
+  const buscando = estado.gpsBuscando;
   const v = (x: string, muted = false) => `<div class="bs-gps-v${muted ? " is-muted" : ""}">${x}</div>`;
+  const vacio = buscando ? "buscando…" : "sin ubicación";
+
+  const notas: string[] = [];
+  if (g && g.precision > PRECISION_AVISO) {
+    notas.push(
+      `<p class="bs-gps-nota">Ubicación poco precisa (± ${g.precision} m). Se puede
+       guardar así, pero si puedes acércate a la entrada y toca Actualizar.</p>`
+    );
+  }
+  if (!g && !buscando) {
+    if (estado.gpsMotivo) {
+      notas.push(`<p class="bs-gps-nota is-alerta">${esc(explicar(estado.gpsMotivo))}</p>`);
+    }
+    notas.push(
+      `<p class="bs-gps-nota">Sin ubicación no se puede guardar: una foto de
+       exhibición sin coordenadas no se puede auditar.</p>`
+    );
+  }
+
   cont.innerHTML = `
     <div class="bs-gps-grid">
-      <div><div class="bs-gps-k">Latitud</div>${v(g ? g.lat.toFixed(5) : "buscando…", !g)}</div>
-      <div><div class="bs-gps-k">Longitud</div>${v(g ? g.lng.toFixed(5) : "buscando…", !g)}</div>
+      <div><div class="bs-gps-k">Latitud</div>${v(g ? g.lat.toFixed(5) : vacio, !g)}</div>
+      <div><div class="bs-gps-k">Longitud</div>${v(g ? g.lng.toFixed(5) : vacio, !g)}</div>
       <div><div class="bs-gps-k">Precisión</div>${v(g ? "± " + g.precision + " m" : "—", !g)}</div>
       <div><div class="bs-gps-k">Hora de captura</div>${v(horaAhora())}</div>
-    </div>`;
+    </div>
+    ${notas.join("")}
+    <button type="button" class="bs-clear" id="btn-gps" style="margin-top:12px"${
+      buscando ? " disabled" : ""
+    }>${buscando ? "Buscando…" : g ? "Actualizar ubicación" : "Reintentar ubicación"}</button>`;
+
+  $("#btn-gps")?.addEventListener("click", () => void refrescarGps());
 }
 
 // ---- validación ----
@@ -588,6 +693,10 @@ function faltantes(): string[] {
   for (const s of fotos) if (s.obligatoria && !estado.fotos[s.tipo]) f.push(s.etiqueta.toLowerCase());
   const campos = estado.marca?.config_captura?.campos ?? [];
   for (const c of campos) if (c.obligatorio && !estado.datos[c.clave]) f.push(c.etiqueta.toLowerCase());
+  // La ubicación es obligatoria: sin coordenadas la evidencia no se puede
+  // auditar. Se acepta cualquier precisión (ver PRECISION_AVISO), justamente
+  // para que el requisito no deje al agente sin poder capturar bajo techo.
+  if (!estado.gps) f.push("ubicación");
   if (!estado.agente) f.push("agente");
   return f;
 }
@@ -641,6 +750,8 @@ async function guardar() {
   };
 
   await cola.guardar(visita);
+  // La evidencia ya está en la cola: el borrador cumplió y se suelta.
+  await cola.borrarBorrador();
   limpiarFormulario();
   renderFormulario();
   await refrescarQueue();
@@ -648,14 +759,123 @@ async function guardar() {
 }
 
 function limpiarFormulario() {
-  // No revocamos los previews: ahora pertenecen a la visita encolada (se muestran
-  // en Registros desde el blob). Solo soltamos las referencias del formulario.
+  // Los previews SÍ se revocan: la vista Registros no los reusa, crea los suyos
+  // desde el blob de la cola (ver regUrls en refrescarRegistros). Dejarlos vivos
+  // acumulaba dos object URLs por cada visita capturada durante toda la jornada.
+  for (const url of Object.values(estado.previews)) URL.revokeObjectURL(url);
   estado.tienda = null;
   estado.fotos = {};
   estado.previews = {};
   estado.datos = {};
   estado.notas = "";
   estado.cargandoFoto = {};
+  estado.erroresFoto = {};
+}
+
+// ---- borrador: la captura a medio hacer no se pierde ----
+//
+// El 31 de agosto un teléfono se quedó sin memoria al tomar la foto y el
+// navegador recargó la página con todo lo capturado adentro. La causa se arregló
+// en comprimir.ts, pero la regla del proyecto es no perder evidencia NUNCA, y un
+// navegador puede cerrar una pestaña por muchas razones. Así que lo capturado se
+// resguarda conforme se trabaja y se ofrece de vuelta al reabrir.
+//
+// Se guarda en su propio store de IndexedDB (ver cola.ts): en el del catálogo se
+// borraría al cambiar de agente.
+
+async function guardarBorrador() {
+  if (!estado.cliente || !estado.agente) return;
+  // Sin fotos no hay nada que valga la pena rescatar: elegir una tienda se
+  // rehace en dos toques, tomar las fotos no.
+  const fotos = Object.values(estado.fotos);
+  if (fotos.length === 0) {
+    await cola.borrarBorrador();
+    return;
+  }
+  try {
+    await cola.guardarBorrador({
+      cliente_id: estado.cliente.id,
+      agente_id: estado.agente.id,
+      agente_nombre: estado.agente.nombre,
+      marca_id: estado.marca?.id ?? null,
+      tienda: estado.tienda,
+      fotos,
+      datos: { ...estado.datos },
+      notas: estado.notas,
+      actualizado_en: new Date().toISOString(),
+    });
+  } catch {
+    // Que falle el resguardo no puede estorbar la captura: la visita se guarda
+    // igual cuando el agente toque Guardar.
+  }
+}
+
+function programarBorrador() {
+  window.clearTimeout(debounceBorrador);
+  debounceBorrador = window.setTimeout(() => void guardarBorrador(), 1000);
+}
+
+// Al abrir: si quedó una captura a medias, se ofrece continuarla.
+async function ofrecerBorrador() {
+  let b: Borrador | undefined;
+  try {
+    b = await cola.leerBorrador();
+  } catch {
+    return;
+  }
+  if (!b || b.fotos.length === 0) return;
+
+  const tienda = b.tienda?.nombre ?? "una tienda";
+  const ajeno = b.agente_id !== estado.agente?.id;
+
+  if (ajeno) {
+    // No se borra: son fotos de alguien más, o sea evidencia. Solo se avisa.
+    $("#banner")!.innerHTML = `
+      <div class="bs-recuperar">
+        <p class="bs-recuperar-t">Hay una captura sin terminar de ${esc(b.agente_nombre)}
+        en ${esc(tienda)}, con ${b.fotos.length} foto(s). No se borra: para retomarla
+        hay que entrar con ese agente.</p>
+      </div>`;
+    return;
+  }
+
+  $("#banner")!.innerHTML = `
+    <div class="bs-recuperar">
+      <p class="bs-recuperar-t">Quedó una captura sin terminar en <strong>${esc(
+        tienda
+      )}</strong> con ${b.fotos.length} foto(s).</p>
+      <div class="bs-recuperar-b">
+        <button class="bs-mini" id="btn-continuar">Continuar esa visita</button>
+        <button class="bs-mini" id="btn-descartar">Descartar</button>
+      </div>
+    </div>`;
+
+  $("#btn-continuar")!.addEventListener("click", () => void continuarBorrador(b!));
+  $("#btn-descartar")!.addEventListener("click", async () => {
+    await cola.borrarBorrador();
+    $("#banner")!.innerHTML = "";
+  });
+}
+
+async function continuarBorrador(b: Borrador) {
+  const marca = estado.marcas.find((m) => m.id === b.marca_id);
+  if (marca) estado.marca = marca;
+
+  limpiarFormulario();
+  estado.tienda = b.tienda;
+  estado.datos = { ...b.datos };
+  estado.notas = b.notas;
+  for (const f of b.fotos) {
+    estado.fotos[f.tipo] = f;
+    // El blob viene del store; si por lo que sea falta, el slot queda vacío y se
+    // vuelve a tomar la foto, en vez de mostrar una imagen rota.
+    if (f.blob) estado.previews[f.tipo] = URL.createObjectURL(f.blob);
+  }
+
+  actualizarQuien();
+  await precargarTiendas();
+  renderFormulario();
+  $("#banner")!.innerHTML = "";
 }
 
 // ---- registros ----
@@ -910,6 +1130,8 @@ export async function init() {
   });
 
   await cargarContexto(ctx);
+  // Con el formulario ya montado: si quedó una captura a medias, ofrecerla.
+  await ofrecerBorrador();
   // Suelta lo que ya está confirmado y viejo antes de nada, para que el teléfono
   // no arranque la jornada con la memoria llena.
   await purgarSilencioso();

@@ -15,7 +15,10 @@
 //
 // Costo: baja el egress. El shell deja de descargarse en cada visita.
 
-const VERSION = "v1";
+// v2 (31 ago 2026): ubicación obligatoria, compresión que no revienta la memoria
+// del teléfono y borrador de la captura. Subir la versión es lo que hace que un
+// teléfono con la app instalada tome el bundle nuevo en vez del cacheado.
+const VERSION = "v2";
 const CACHE = `lamision-shell-${VERSION}`;
 
 // Lo mínimo para arrancar. Los assets con hash (/_astro/*) se cachean solos al

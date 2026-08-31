@@ -435,6 +435,112 @@ escribir la pantalla. Falta la prueba en el teléfono.
 
 ---
 
+## Sesión del 31 de agosto — las dos fallas del primer día
+
+Salieron en dos teléfonos distintos, con agentes reales, el mismo día que arrancó
+la captura. Las dos estaban en el código desde el principio; hicieron falta ocho
+horas de uso real para verlas.
+
+### Falla 1 — visitas sin GPS (teléfono de Carmen)
+
+**Causa:** `refrescarGps()` se llamaba **una sola vez** al montar el formulario,
+pedía alta precisión con 8 segundos de límite y, si fallaba, devolvía `null` **en
+silencio**. La pantalla se quedaba en "buscando…" aunque ya nadie buscara, y
+`faltantes()` no exigía ubicación: la visita se guardaba sin coordenadas. Bajo el
+techo de una tienda, ocho segundos de GPS puro no alcanzan para fijar posición.
+
+**Decisión de Mauricio: bloqueo duro.** Sin ubicación no se guarda, sin excepción.
+
+Eso obliga a que el GPS **funcione**, no solo a exigirlo: bloquear sin mejorar la
+lectura habría cambiado "visitas sin coordenadas" por "Carmen no puede capturar".
+Por eso `gps.ts` se reescribió con tres cambios:
+
+1. **Seguimiento continuo** (`watchPosition`) mientras dura la captura, que
+   conserva la **mejor** lectura, no la última. El GPS tiene toda la visita para
+   fijar, en vez de ocho segundos al final.
+2. **Dos etapas** al pedirla a mano: alta precisión (15 s) y, si no contesta, un
+   segundo intento **sin** alta precisión, que usa red y última posición conocida.
+   Bajo techo esa segunda etapa es la que responde. Con el permiso bloqueado no
+   hay segundo intento: insistir solo hace esperar.
+3. **Motivo del fallo** — permiso, no disponible, timeout o sin soporte — con la
+   instrucción correspondiente. Para el permiso, la ruta exacta de Ajustes en
+   iPhone y Android, porque ahí el navegador ya no vuelve a preguntar solo.
+
+En la pantalla: botón **"Reintentar ubicación"** (que además es el gesto de usuario
+que iOS exige para volver a pedir el permiso), y el botón Guardar bloqueado con
+"Falta ubicación" mientras no haya.
+
+**Se acepta cualquier precisión.** Arriba de 100 m se avisa, pero no se bloquea:
+una lectura de ±300 m sigue diciendo en qué plaza está el agente, y exigir
+precisión fina adentro de una tienda es exigir lo que el teléfono no puede dar.
+
+### Falla 2 — "Memoria insuficiente" al tomar la foto (teléfono de Romina)
+
+**Causa:** `comprimir.ts` hacía `createImageBitmap(file)` **sin opciones de
+escalado**, o sea decodificaba la foto completa en RAM. Una foto de 12 MP son
+~48 MB de bitmap, más el canvas, más el archivo original todavía vivo. El
+navegador mataba la pestaña y la recargaba, llevándose lo capturado.
+
+**Arreglo:** escalar **durante** la decodificación, pasándole `resizeWidth` o
+`resizeHeight` a `createImageBitmap`. El bitmap pasa de ~48 MB a ~7.7 MB, con la
+misma foto de salida. Cuál de los dos lados fijar depende de la orientación, que
+se averigua con un sondeo de 64 px que se cierra de inmediato. Además se libera el
+bitmap **antes** de codificar el WebP y se deja el canvas en 0×0, que es lo que
+suelta su búfer en móviles. Si un navegador no acepta las opciones de escalado,
+cae al camino anterior.
+
+De paso, dos cosas que estaban mal alrededor:
+- **El error de una foto era invisible:** el `catch` borraba la foto sin decir
+  nada. Ahora se explica en el slot, y si fue por memoria lo dice con esas palabras.
+- **Fuga de object URLs:** `limpiarFormulario()` no revocaba los previews, así que
+  cada visita dejaba dos URLs vivas toda la jornada. La vista Registros no los
+  reusa —crea los suyos desde el blob de la cola—, así que revocarlos es seguro.
+
+### Red de seguridad — borrador de la captura
+
+Aunque la causa del crash está corregida, un navegador puede cerrar una pestaña por
+muchas razones, y la regla del proyecto es **no perder evidencia nunca**. Cada foto
+comprimida se resguarda de inmediato en IndexedDB, junto con tienda, datos y notas.
+Al reabrir, la app ofrece **Continuar esa visita** o **Descartar**, y el borrador se
+suelta cuando la visita entra a la cola.
+
+- Va en su **propio store**, no en el del catálogo: `olvidarIdentidad()` vacía el
+  catálogo al cambiar de agente, y el borrador trae fotos, o sea evidencia.
+- Un borrador de **otro agente** se avisa pero **no se borra**.
+- `DB_VERSION` sube de 2 a 3, con el mismo patrón aditivo de la migración anterior:
+  no toca el store `visitas`, así que una cola con evidencia pendiente sobrevive.
+- Se agregó `onblocked` al abrir la base: subir de versión con la app abierta en
+  otra pestaña dejaba la promesa colgada para siempre, sin cola y sin explicación.
+
+### Pruebas — `npm run prueba`
+
+`astro check` limpio no prueba nada del comportamiento, y estas dos correcciones
+son difíciles de verificar a mano en un teléfono. Se agregaron **17 comprobaciones**
+que corren en Node con el navegador simulado (geolocation, createImageBitmap y
+canvas), sin dependencias nuevas: usan el esbuild que ya trae Astro.
+
+Cubren lo que de verdad importa: que haya segunda etapa tras un timeout, que no se
+insista con el permiso bloqueado, que el seguimiento conserve la mejor lectura, que
+una foto vertical fije el alto y una horizontal el ancho, que se cierren los
+bitmaps y que el respaldo también entregue 1600 px.
+
+### Service worker
+
+`VERSION` sube a `v2` en `public/sw.js`. Sin eso, un teléfono con la app instalada
+puede seguir corriendo el bundle viejo después del deploy — y estos arreglos no
+sirven de nada si no llegan al teléfono.
+
+### Archivos
+
+`src/lib/gps.ts` (reescrito), `src/lib/comprimir.ts`, `src/lib/captura-ui.ts`,
+`src/lib/cola.ts`, `src/lib/tipos.ts`, `src/styles/captura.css`, `public/sw.js`,
+`pruebas/` (nuevo), `package.json`.
+
+Sin migraciones de Supabase: `latitud`/`longitud` siguen aceptando nulos por las
+visitas ya guardadas. Volverlas `not null` es tema de fase 2.
+
+---
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo
@@ -461,9 +567,11 @@ la cola de IndexedDB del teléfono, no en el servidor. Una visita atorada no se 
 la base: se ve porque *falta*. Para detectarlas hay que preguntarle al agente o
 comparar contra su Historial.
 
-**Antes que los candidatos de abajo:** decidir qué hacer con las visitas que se
-guardan sin GPS (ver el hallazgo del 31 de agosto), si con más días el patrón se
-repite.
+**Lo del GPS ya se resolvió** el mismo 31 de agosto: la ubicación pasó a ser
+obligatoria y la búsqueda se rehizo para que funcione bajo techo (ver la sección de
+las dos fallas). Lo que queda es **confirmarlo en campo**: que Carmen capture una
+visita completa adentro de una tienda y que Romina tome una foto en el teléfono
+donde se caía.
 
 Con eso en la mano se decide qué sigue. Lo de abajo es la lista de candidatos, no
 un compromiso.

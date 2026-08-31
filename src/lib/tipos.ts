@@ -131,3 +131,24 @@ export interface VisitaPendiente {
   creada_en: string;     // ISO UTC
   subida_en?: string;    // ISO UTC — cuándo confirmó el servidor
 }
+
+// Captura a medio llenar, guardada en IndexedDB conforme se trabaja (ver cola.ts).
+//
+// Para qué: si el navegador cierra la pestaña —se quedó sin memoria, el sistema
+// la descargó, el agente la cerró sin querer— las fotos ya tomadas no se pierden.
+// Al volver a abrir, la app ofrece continuar esa visita.
+//
+// No es una visita todavía: no tiene UUID de visita ni hora de captura definitiva.
+// Esos se generan al guardar, cuando entra a la cola.
+export interface Borrador {
+  id: string;              // llave fija: solo hay una captura en curso
+  cliente_id: string;
+  agente_id: string;
+  agente_nombre: string;   // para avisar si el borrador es de otro agente
+  marca_id: string | null;
+  tienda: Tienda | null;
+  fotos: FotoLocal[];
+  datos: Record<string, unknown>;
+  notas: string;
+  actualizado_en: string;  // ISO UTC
+}
