@@ -13,10 +13,7 @@ import { olvidarIdentidad } from "./identidad";
 import {
   DIAS_CONSERVAR_REGISTRO,
   HORAS_CONSERVAR_FOTOS,
-  kbLegible,
-  purgar,
   purgarSilencioso,
-  simular,
 } from "./retencion";
 import {
   fotosDeVisita,
@@ -726,22 +723,7 @@ async function refrescarRegistros() {
     stats +
     `<div class="bs-rows">${filas}</div>
      <p class="bs-note">Esta pestaña es lo que vive en <strong>este equipo</strong>. Cada registro guarda la hora real de captura y la de subida por separado: si hay diferencia entre las dos, el trabajo se hizo en tienda y se sincronizó después — no es una falla.<br><br>
-     Las fotos se conservan en el teléfono ${HORAS_CONSERVAR_FOTOS} horas después de que el servidor las confirma${liberadas ? `; ${liberadas} ya se liberaron (la flecha ↑)` : ""}, y el registro local ${DIAS_CONSERVAR_REGISTRO} días. Lo de más atrás se consulta en <strong>Historial</strong>. Nada sin confirmar se borra jamás.</p>
-     <button class="bs-toggle" id="btn-liberar" style="width:100%;margin-top:14px">Liberar espacio ahora</button>
-     <p class="bs-note" id="msg-liberar" style="border:none;padding-top:8px"></p>`;
-
-  $("#btn-liberar")!.addEventListener("click", async () => {
-    const msg = $("#msg-liberar")!;
-    const previo = await simular();
-    if (!previo.fotosLiberadas && !previo.registrosBorrados) {
-      msg.textContent = "No hay nada que liberar: todo lo guardado es reciente o está sin confirmar.";
-      return;
-    }
-    const r = await purgar();
-    msg.textContent = `Liberados ${kbLegible(r.bytesLiberados)} — ${r.fotosLiberadas} foto(s) y ${r.registrosBorrados} registro(s) viejos.`;
-    await refrescarQueue();
-    await refrescarRegistros();
-  });
+     Las fotos se conservan en el teléfono ${HORAS_CONSERVAR_FOTOS} horas después de que el servidor las confirma${liberadas ? `; ${liberadas} ya se liberaron (la flecha ↑)` : ""}, y el registro local ${DIAS_CONSERVAR_REGISTRO} días — solo. Lo de más atrás se consulta en <strong>Historial</strong>. Nada sin confirmar se borra jamás.</p>`;
 }
 
 // ---- historial (consultado al servidor por rango de fechas) ----
@@ -829,7 +811,7 @@ async function buscarHistorial() {
           v.agente_nombre && !soloMias ? " · " + esc(v.agente_nombre) : ""
         }</div>
               ${v.notas ? `<div class="bs-row-meta" style="color:#14181B">“${esc(v.notas)}”</div>` : ""}
-              <button class="bs-clear" data-visita="${esc(v.id)}" style="margin-top:8px">Ver fotos</button>
+              <button class="bs-mini" data-visita="${esc(v.id)}" style="margin-top:8px">Ver fotos</button>
               <div class="bs-thumbs" id="fotos-${esc(v.id)}" style="margin-top:8px"></div>
             </div>
           </article>`;

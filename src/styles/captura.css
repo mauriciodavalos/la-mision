@@ -218,6 +218,17 @@
   padding: 2px 6px; border-radius: 2px;
 }
 
+/* Botón chico sobre fondo CLARO. Existe porque .bs-clear es texto casi blanco
+   (pensado para el fondo verde oscuro de la tienda elegida): sobre el fondo claro
+   del historial no se veía nada. */
+.bs-mini {
+  background: var(--paper); border: 1px solid var(--petrol); color: var(--petrol);
+  font-family: 'Roboto Mono', monospace; font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; padding: 7px 10px; border-radius: 2px; cursor: pointer;
+}
+.bs-mini:hover { background: var(--petrol); color: var(--paper); }
+.bs-mini:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+
 .bs-rango { display: flex; gap: 12px; }
 .bs-rango .bs-campo { margin-bottom: 8px; }
 /* Hueco de una foto que ya se liberó del teléfono (vive en el servidor). */

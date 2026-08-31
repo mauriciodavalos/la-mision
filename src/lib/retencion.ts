@@ -39,11 +39,9 @@ function antiguedadMs(v: VisitaPendiente): number | null {
   return Date.now() - t;
 }
 
-// Qué pasaría al purgar, sin tocar nada. Para el botón "liberar espacio".
-export async function simular(): Promise<ResultadoPurga> {
-  return recorrer(await cola.listar(), false);
-}
-
+// La limpieza es AUTOMÁTICA: no hay botón para forzarla. Se decidió así para no
+// darle al agente una palanca sobre la evidencia — su trabajo es capturar, no
+// administrar el almacenamiento del teléfono.
 export async function purgar(): Promise<ResultadoPurga> {
   return recorrer(await cola.listar(), true);
 }
@@ -92,9 +90,4 @@ export async function purgarSilencioso(): Promise<void> {
   } catch {
     /* la limpieza nunca debe estorbar a la captura */
   }
-}
-
-export function kbLegible(bytes: number): string {
-  if (bytes >= 1_048_576) return (bytes / 1_048_576).toFixed(1) + " MB";
-  return Math.round(bytes / 1024) + " KB";
 }
