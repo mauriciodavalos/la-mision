@@ -100,7 +100,7 @@ function normEncabezado(s: string): string {
 // se le va a pedir a nadie que renombre el archivo a mano.
 const ALIAS: Record<keyof FilaTienda, string[]> = {
   clave_sucursal: ["clave_sucursal", "clave", "no_tienda", "numero_tienda", "num_tienda", "id_tienda", "sucursal_clave", "cr"],
-  nombre: ["nombre", "sucursal", "nombre_sucursal", "nombre_tienda", "tienda"],
+  nombre: ["nombre", "sucursal", "nombre_sucursal", "nombre_tienda", "tienda", "nombre_interno", "descripcion"],
   direccion: ["direccion", "domicilio", "calle"],
   municipio: ["municipio", "ciudad", "delegacion", "alcaldia", "localidad"],
   estado: ["estado", "entidad", "entidad_federativa"],
