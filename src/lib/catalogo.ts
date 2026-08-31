@@ -1,6 +1,10 @@
 // Lecturas de catálogo desde Supabase: clientes, marcas, cadenas, tiendas, agentes.
-// Todo filtrado por cliente_id — los datos de un cliente nunca se mezclan con otro.
-// (En fase 1 el aislamiento es por consulta; en fase 2 lo refuerza la RLS.)
+//
+// Dos filtros, siempre:
+//  1. Por CLIENTE — los datos de un cliente nunca se mezclan con otro.
+//  2. Por ASIGNACIÓN del agente — cada quien ve solo la marca y la cadena que le
+//     tocan (ver 0006_asignaciones.sql). Un admin se salta este segundo filtro.
+// (En fase 1 ambos son por consulta; en fase 2 los refuerza la RLS.)
 //
 // Estrategia: RED PRIMERO, CACHE COMO RESPALDO (ver catalogo-cache.ts). El agente
 // puede abrir la app sin señal dentro de una tienda y seguir teniendo su marca,
@@ -8,10 +12,25 @@
 
 import { supabase } from "../db/supabase";
 import * as cache from "./catalogo-cache";
-import type { Cliente, Marca, Cadena, Tienda, Agente } from "./tipos";
+import type { Agente, Asignacion, Cliente, Marca, Cadena, Tienda } from "./tipos";
 
-export async function listarClientes(): Promise<Cliente[]> {
-  return cache.redPrimero(cache.claves.clientes(), async () => {
+// Un cliente al que el agente puede entrar. Para un admin, todos los activos.
+export async function listarClientes(agente?: Agente): Promise<Cliente[]> {
+  const clave = cache.claves.clientes(agente?.id);
+  return cache.redPrimero(clave, async () => {
+    if (agente && !agente.es_admin) {
+      // Solo los clientes donde tiene membresía (agente_cliente).
+      const { data, error } = await supabase
+        .from("agente_cliente")
+        .select("clientes(id, nombre, slug, activo)")
+        .eq("agente_id", agente.id);
+      if (error) throw error;
+      return (data ?? [])
+        .map((r: any) => r.clientes)
+        .filter((c: any) => c && c.activo !== false)
+        .map((c: any) => ({ id: c.id, nombre: c.nombre, slug: c.slug }))
+        .sort((a: Cliente, b: Cliente) => a.nombre.localeCompare(b.nombre, "es-MX"));
+    }
     const { data, error } = await supabase
       .from("clientes")
       .select("id, nombre, slug")
@@ -22,8 +41,26 @@ export async function listarClientes(): Promise<Cliente[]> {
   });
 }
 
-export async function listarMarcas(clienteId: string): Promise<Marca[]> {
-  return cache.redPrimero(cache.claves.marcas(clienteId), async () => {
+// Asignaciones del agente en un cliente: qué marca, en qué cadena.
+export async function listarAsignaciones(
+  agenteId: string,
+  clienteId: string
+): Promise<Asignacion[]> {
+  return cache.redPrimero(cache.claves.asignaciones(clienteId, agenteId), async () => {
+    const { data, error } = await supabase
+      .from("agente_asignacion")
+      .select("marca_id, cadena_id")
+      .eq("agente_id", agenteId)
+      .eq("cliente_id", clienteId);
+    if (error) throw error;
+    return (data ?? []) as Asignacion[];
+  });
+}
+
+// Marcas que el agente puede capturar en este cliente.
+// Admin: todas. Resto: solo las que aparecen en sus asignaciones.
+export async function listarMarcas(clienteId: string, agente?: Agente): Promise<Marca[]> {
+  const todas = await cache.redPrimero(cache.claves.marcas(clienteId), async () => {
     const { data, error } = await supabase
       .from("marcas")
       .select("id, cliente_id, nombre, config_captura")
@@ -33,6 +70,13 @@ export async function listarMarcas(clienteId: string): Promise<Marca[]> {
     if (error) throw error;
     return (data ?? []) as Marca[];
   });
+
+  if (!agente || agente.es_admin) return todas;
+
+  const asignadas = new Set(
+    (await listarAsignaciones(agente.id, clienteId)).map((a) => a.marca_id)
+  );
+  return todas.filter((m) => asignadas.has(m.id));
 }
 
 export async function listarCadenas(clienteId: string): Promise<Cadena[]> {
@@ -52,18 +96,41 @@ export async function listarCadenas(clienteId: string): Promise<Cadena[]> {
 // cientos de sucursales) sobra; si un cliente lo rebasa, toca paginar.
 const MAX_TIENDAS = 5000;
 
-// Descarga TODAS las tiendas del cliente y las cachea. Se llama una vez al entrar.
-// Bajar la lista completa (unos pocos KB) y buscar en local es más barato que
-// consultar la red en cada tecla, y es lo único que funciona sin señal.
-export async function listarTiendas(clienteId: string): Promise<Tienda[]> {
-  return cache.redPrimero(cache.claves.tiendas(clienteId), async () => {
-    const { data, error } = await supabase
+// Tiendas que el agente puede visitar con ESA marca. Admin: todas las del cliente.
+// Resto: solo las de las cadenas que tiene asignadas para esa marca.
+//
+// Se descargan todas de una vez y se cachean: bajar la lista (unos pocos KB) y
+// buscar en local es más barato que consultar la red en cada tecla, y es lo único
+// que funciona sin señal.
+export async function listarTiendas(
+  clienteId: string,
+  agente?: Agente,
+  marcaId?: string
+): Promise<Tienda[]> {
+  let cadenas: string[] | null = null;
+
+  if (agente && !agente.es_admin) {
+    const asigs = await listarAsignaciones(agente.id, clienteId);
+    const suyas = marcaId ? asigs.filter((a) => a.marca_id === marcaId) : asigs;
+    cadenas = [...new Set(suyas.map((a) => a.cadena_id))];
+    // Sin cadenas asignadas para esa marca no hay nada que mostrar. Se devuelve
+    // vacío en vez de consultar sin filtro, que enseñaría tiendas ajenas.
+    if (cadenas.length === 0) return [];
+  }
+
+  const clave = cache.claves.tiendas(clienteId, agente?.id, marcaId);
+  return cache.redPrimero(clave, async () => {
+    let q = supabase
       .from("tiendas")
       .select("id, cliente_id, cadena_id, clave_sucursal, nombre, cadenas(nombre, slug)")
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("nombre")
       .limit(MAX_TIENDAS);
+
+    if (cadenas) q = q.in("cadena_id", cadenas);
+
+    const { data, error } = await q;
     if (error) throw error;
     return (data ?? []).map((r: any) => ({
       id: r.id,
@@ -86,14 +153,16 @@ function norm(s: string): string {
     .trim();
 }
 
-// Búsqueda de tiendas del cliente por nombre o clave de sucursal.
-// Filtra sobre el catálogo local: instantánea y funciona sin señal.
+// Búsqueda de tiendas por nombre o clave de sucursal, sobre el catálogo local:
+// instantánea y funciona sin señal.
 export async function buscarTiendas(
   clienteId: string,
   texto: string,
-  limite = 20
+  limite = 20,
+  agente?: Agente,
+  marcaId?: string
 ): Promise<Tienda[]> {
-  const todas = await listarTiendas(clienteId);
+  const todas = await listarTiendas(clienteId, agente, marcaId);
   const t = norm(texto);
   if (!t) return todas.slice(0, limite);
   return todas
@@ -106,24 +175,41 @@ export async function buscarTiendas(
     .slice(0, limite);
 }
 
+// Agentes que pueden identificarse en este cliente: los que tienen membresía MÁS
+// los admins, que entran a cualquier cliente sin necesitar fila de membresía.
+// pin_salt/pin_hash vienen para poder validar el PIN sin señal (fase 1).
 export async function listarAgentes(clienteId: string): Promise<Agente[]> {
   return cache.redPrimero(cache.claves.agentes(clienteId), async () => {
-    // Agentes ligados a este cliente vía agente_cliente (N:N).
-    // pin_salt/pin_hash vienen para poder validar el PIN sin señal (fase 1).
-    const { data, error } = await supabase
-      .from("agente_cliente")
-      .select("agentes(id, nombre, activo, pin_salt, pin_hash)")
-      .eq("cliente_id", clienteId);
-    if (error) throw error;
-    return (data ?? [])
-      .map((r: any) => r.agentes)
-      .filter((a: any) => a && a.activo !== false)
-      .map((a: any) => ({
+    const [ligados, admins] = await Promise.all([
+      supabase
+        .from("agente_cliente")
+        .select("agentes(id, nombre, activo, es_admin, pin_salt, pin_hash)")
+        .eq("cliente_id", clienteId),
+      supabase
+        .from("agentes")
+        .select("id, nombre, activo, es_admin, pin_salt, pin_hash")
+        .eq("es_admin", true),
+    ]);
+    if (ligados.error) throw ligados.error;
+    if (admins.error) throw admins.error;
+
+    const crudos = [
+      ...(ligados.data ?? []).map((r: any) => r.agentes),
+      ...(admins.data ?? []),
+    ];
+
+    // Un admin con membresía saldría dos veces: se deduplica por id.
+    const porId = new Map<string, Agente>();
+    for (const a of crudos) {
+      if (!a || a.activo === false || porId.has(a.id)) continue;
+      porId.set(a.id, {
         id: a.id,
         nombre: a.nombre,
+        es_admin: a.es_admin === true,
         pin_salt: a.pin_salt,
         pin_hash: a.pin_hash,
-      }))
-      .sort((a: Agente, b: Agente) => a.nombre.localeCompare(b.nombre, "es-MX"));
+      });
+    }
+    return [...porId.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es-MX"));
   });
 }

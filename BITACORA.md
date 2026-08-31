@@ -132,6 +132,27 @@ hasta que eso pase.
   La pestaña "Registros" se renombró a **"En el equipo"** para que quede claro que
   muestra lo local, no lo que hay en el servidor — esa confusión ya costó una duda.
 
+- **Asignaciones y rol de admin (`0006_asignaciones.sql`).** Un agente ligado a un
+  cliente veía TODO lo suyo: todas las marcas y las 123 tiendas. La operación real
+  es otra: Lalo hace Bodega Aurrerá para Bikes Shot; Carmen hace Sanborns para
+  Ondina y Anframa (dos marcas del mismo cliente); Mau administra todo.
+  - `agente_asignacion (agente, cliente, marca, cadena)` con llaves compuestas: es
+    imposible asignar la marca de un cliente en la cadena de otro. **Probado** con
+    un insert cruzado que la base rechaza.
+  - Granularidad **marca + cadena completa**, no tienda por tienda: así las
+    sucursales nuevas cargadas por CSV aparecen solas para quien ya tiene esa
+    cadena, sin el paso manual que se olvida y deja a un agente sin sus tiendas.
+  - `agentes.es_admin` se salta asignaciones y membresía. Bandera y no tabla de
+    roles porque en fase 1 solo hay dos niveles.
+  - `agente_cliente` se queda como **membresía** (dónde puede identificarse);
+    `agente_asignacion` es el **alcance** (qué captura).
+  - **Se corrigió el `marcas[0]`**, gemelo del bug de `clientes[0]`: con varias
+    marcas asignadas ya no se elige la primera por orden alfabético — el agente
+    tiene que elegir. Si no, Carmen habría capturado siempre en Anframa sin darse
+    cuenta y la evidencia quedaría mal atribuida hasta el reporte, o nunca.
+  - Las llaves del cache llevan el id del agente: en un equipo compartido, Carmen
+    no debe ver el catálogo cacheado de Lalo.
+
 ### Pendiente de decidir — una base de datos por cliente
 Se planteó dar URL y base independientes por marca. Análisis: **URL por cliente sí**
 (slug → `cliente_id`; barato, y de paso fija el tenant), **base por cliente no**:

@@ -62,11 +62,20 @@ export interface Tienda {
 export interface Agente {
   id: string;
   nombre: string;
+  // Admin: se salta las asignaciones y la membresía — ve y captura en todo
+  // (ver 0006_asignaciones.sql).
+  es_admin?: boolean;
   // Credencial de fase 1 (ver 0004_pin_agente.sql). Viajan al navegador a
   // propósito: el PIN se valida SIN SEÑAL contra el catálogo cacheado.
   // Van nulos mientras el agente no tenga PIN asignado.
   pin_salt?: string | null;
   pin_hash?: string | null;
+}
+
+// Qué marca captura un agente, en qué cadena (ver 0006_asignaciones.sql).
+export interface Asignacion {
+  marca_id: string;
+  cadena_id: string;
 }
 
 // Agente identificado en ESTE dispositivo (se guarda en localStorage).

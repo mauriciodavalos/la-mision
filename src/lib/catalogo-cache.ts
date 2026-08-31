@@ -21,12 +21,23 @@ export interface EntradaCache<T> {
 
 // Claves estables. Todo lo que dependa del cliente lleva su id en la clave, así
 // nunca se mezclan datos de dos clientes en el mismo dispositivo.
+//
+// OJO: lo que además depende del AGENTE (porque cambia según sus asignaciones)
+// lleva también su id. Sin eso, en un equipo compartido Carmen vería el catálogo
+// cacheado de Lalo — tiendas y marcas que no le tocan.
 export const claves = {
-  clientes: () => "clientes",
+  clientes: (agenteId?: string) => (agenteId ? `clientes:${agenteId}` : "clientes"),
+  // Las marcas se cachean completas por cliente y se filtran en memoria según la
+  // asignación: así no se descarga dos veces lo mismo para dos agentes.
   marcas: (clienteId: string) => `marcas:${clienteId}`,
   cadenas: (clienteId: string) => `cadenas:${clienteId}`,
-  tiendas: (clienteId: string) => `tiendas:${clienteId}`,
+  // Las tiendas SÍ se piden filtradas al servidor (menos egress), así que la
+  // clave depende del agente y de la marca elegida.
+  tiendas: (clienteId: string, agenteId?: string, marcaId?: string) =>
+    `tiendas:${clienteId}:${agenteId ?? "todos"}:${marcaId ?? "todas"}`,
   agentes: (clienteId: string) => `agentes:${clienteId}`,
+  asignaciones: (clienteId: string, agenteId: string) =>
+    `asignaciones:${clienteId}:${agenteId}`,
 };
 
 export async function guardar<T>(clave: string, valor: T): Promise<void> {

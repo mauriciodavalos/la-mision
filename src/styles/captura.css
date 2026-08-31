@@ -211,6 +211,13 @@
 .bs-pin-box:focus { outline: 2px solid var(--petrol); outline-offset: 1px; border-color: var(--petrol); }
 
 /* ---- historial y retención ---- */
+/* Distintivo de administrador junto a quién captura. */
+.bs-admin {
+  font-family: 'Roboto Mono', monospace; font-size: 9px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--petrol-dp); background: var(--hivis);
+  padding: 2px 6px; border-radius: 2px;
+}
+
 .bs-rango { display: flex; gap: 12px; }
 .bs-rango .bs-campo { margin-bottom: 8px; }
 /* Hueco de una foto que ya se liberó del teléfono (vive en el servidor). */

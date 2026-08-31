@@ -10,9 +10,31 @@
 --
 -- La regla de oro: un agente solo ve datos de los clientes a los que pertenece
 -- (tabla agente_cliente), resuelto contra auth.uid() -> agentes.user_id.
+--
+-- OJO (desde 0006_asignaciones.sql): la membresía ya no es el único filtro.
+--  * `agente_asignacion` define QUÉ marca y en QUÉ cadena captura cada agente.
+--    Estas policies dan alcance a nivel CLIENTE; afinarlas a marca/cadena es el
+--    siguiente escalón y debe hacerse aquí, no solo en la app.
+--  * `agentes.es_admin` se salta todo. Ojo al escribirlo: un admin tiene que
+--    poder leer y escribir en cualquier cliente.
 -- =============================================================================
 
+-- Helper: ¿el usuario autenticado es administrador? --------------------------
+create or replace function public.es_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select a.es_admin from public.agentes a where a.user_id = auth.uid()),
+    false
+  );
+$$;
+
 -- Helper: clientes a los que pertenece el usuario autenticado -----------------
+-- Un admin los ve todos.
 create or replace function public.clientes_del_usuario()
 returns setof uuid
 language sql
@@ -20,6 +42,8 @@ stable
 security definer
 set search_path = public
 as $$
+  select c.id from public.clientes c where public.es_admin()
+  union
   select ac.cliente_id
   from public.agente_cliente ac
   join public.agentes a on a.id = ac.agente_id
@@ -35,6 +59,14 @@ alter table public.agentes        enable row level security;
 alter table public.agente_cliente enable row level security;
 alter table public.visitas        enable row level security;
 alter table public.evidencias     enable row level security;
+alter table public.agente_asignacion enable row level security;
+
+-- El agente ve sus propias asignaciones (la app las necesita para filtrar).
+create policy asignacion_propia on public.agente_asignacion
+  for select using (
+    public.es_admin()
+    or agente_id in (select id from public.agentes where user_id = auth.uid())
+  );
 
 -- Policies por cliente_id (lectura/escritura del propio cliente) --------------
 -- Patrón repetido para cada tabla operativa con cliente_id:
@@ -62,9 +94,13 @@ create policy cliente_scope_evidencias on public.evidencias
 create policy cliente_scope_clientes on public.clientes
   for select using (id in (select public.clientes_del_usuario()));
 
--- agentes / agente_cliente: el usuario ve su propia ficha y membresías
+-- agentes / agente_cliente: el usuario ve su propia ficha y membresías.
+-- OJO: la pantalla de identificación necesita listar a los agentes de un cliente
+-- ANTES de que nadie se autentique. Con RLS puesta eso deja de funcionar, así que
+-- al aplicar esta migración hay que sustituir el PIN por Supabase Auth de verdad
+-- (que es justo el punto de la fase 2), no dejar las dos cosas conviviendo.
 create policy agente_propio on public.agentes
-  for select using (user_id = auth.uid());
+  for select using (public.es_admin() or user_id = auth.uid());
 
 create policy agente_cliente_propio on public.agente_cliente
   for select using (

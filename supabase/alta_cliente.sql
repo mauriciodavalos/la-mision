@@ -121,6 +121,14 @@ begin
 
     -- PIN: guarda solo salt + sha256(pin||salt). Ver 0004_pin_agente.sql.
     perform public.set_pin_agente(v_agente, v_pin);
+
+    -- Asignación: la marca y la cadena que se acaban de crear en esta corrida.
+    -- Sin esto el agente entra pero no ve marcas (ver 0006_asignaciones.sql).
+    -- Para rutas más finas o para sumar agentes después, usar alta_agente.sql.
+    insert into public.agente_asignacion (agente_id, cliente_id, marca_id, cadena_id)
+    values (v_agente, v_cliente, v_marca, v_cadena)
+    on conflict do nothing;
+
     v_agente := null;
   end loop;
 

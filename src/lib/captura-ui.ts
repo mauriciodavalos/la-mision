@@ -86,6 +86,7 @@ function montarEsqueleto(root: HTMLElement) {
             <h1 class="bs-title">Control de<br>exhibición</h1>
             <p class="bs-quien">
               <span id="quien-txt"></span>
+              <span class="bs-admin" id="chip-admin" hidden>admin</span>
               <button class="bs-quien-btn" id="btn-cambiar-agente">cambiar</button>
             </p>
           </div>
@@ -170,37 +171,63 @@ async function cargarContexto(ctx: Contexto) {
   estado.cliente = ctx.cliente;
   estado.agente = ctx.agente;
 
-  // Quién captura y en qué cuenta: siempre visible, para que nadie capture en el
-  // cliente equivocado sin darse cuenta.
-  $("#quien-txt")!.textContent = `${ctx.agente.nombre} · ${ctx.cliente.nombre}`;
+  actualizarQuien();
 
   try {
-    estado.marcas = await listarMarcas(ctx.cliente.id);
+    // Solo las marcas que el agente tiene asignadas (todas, si es admin).
+    estado.marcas = await listarMarcas(ctx.cliente.id, ctx.agente);
   } catch {
     mostrarBanner(
       "No se pudo leer el catálogo y no hay copia en este dispositivo. Conéctate una vez."
     );
     return;
   }
-  estado.marca = estado.marcas[0] ?? null;
 
-  if (!estado.marca) {
-    mostrarBanner("Este cliente no tiene marcas configuradas.");
+  if (estado.marcas.length === 0) {
+    mostrarBanner(
+      ctx.agente.es_admin
+        ? "Este cliente no tiene marcas configuradas."
+        : "No tienes marcas asignadas en este cliente. Pide que te asignen una para poder capturar."
+    );
     return;
   }
-  $("#marca-nombre")!.textContent = estado.marca.nombre;
 
-  // Descarga el catálogo de tiendas de una vez y lo cachea: la búsqueda queda
-  // instantánea y sigue funcionando dentro de la tienda sin señal.
+  // Con UNA marca asignada se elige sola. Con varias NO se adivina: el agente
+  // tiene que elegir. Tomar la primera por orden alfabético haría que capturara
+  // siempre en la misma marca sin darse cuenta, y la evidencia quedaría mal
+  // atribuida hasta que alguien lo notara en el reporte — o nunca.
+  estado.marca = estado.marcas.length === 1 ? estado.marcas[0] : null;
+  actualizarQuien();
+
+  await precargarTiendas();
+  renderFormulario();
+}
+
+// Descarga y cachea las tiendas de la marca elegida: la búsqueda queda instantánea
+// y sigue funcionando dentro de la tienda sin señal.
+async function precargarTiendas() {
+  if (!estado.cliente || !estado.marca) return;
   try {
-    await listarTiendas(ctx.cliente.id);
+    await listarTiendas(estado.cliente.id, estado.agente ?? undefined, estado.marca.id);
   } catch {
     mostrarBanner(
       "Sin catálogo de tiendas descargado. Conéctate una vez para poder capturar sin señal."
     );
   }
+}
 
-  renderFormulario();
+// Quién captura, en qué cuenta y con qué marca. Siempre visible, para que nadie
+// capture en el cliente o la marca equivocada sin darse cuenta.
+function actualizarQuien() {
+  const partes = [estado.agente?.nombre ?? "", estado.cliente?.nombre ?? ""];
+  if (estado.marca) partes.push(estado.marca.nombre);
+  $("#quien-txt")!.textContent = partes.filter(Boolean).join(" · ");
+  const marcaEnc = $("#marca-nombre");
+  if (marcaEnc) {
+    marcaEnc.textContent = estado.marca?.nombre ?? estado.cliente?.nombre ?? "La Misión";
+  }
+  const chip = $("#chip-admin");
+  if (chip) chip.hidden = !estado.agente?.es_admin;
 }
 
 function mostrarBanner(msg: string) {
@@ -210,20 +237,42 @@ function mostrarBanner(msg: string) {
 // ---- formulario (config-driven) ----
 function renderFormulario() {
   const body = $("#form-body")!;
-  const config = estado.marca!.config_captura || { fotos: [], campos: [], checklist: [] };
-  const fotos = config.fotos ?? [];
-  const campos = config.campos ?? [];
-  const checklist = config.checklist ?? [];
+  const config = estado.marca?.config_captura || { fotos: [], campos: [], checklist: [] };
+  const fotos = estado.marca ? config.fotos ?? [] : [];
+  const campos = estado.marca ? config.campos ?? [] : [];
+  const checklist = estado.marca ? config.checklist ?? [] : [];
 
   let n = 0;
   const num = () => String(++n).padStart(2, "0");
   const partes: string[] = [];
 
-  // Selectores de contexto solo si hay más de una opción (fase 1: normalmente 1).
+  // Selector de marca cuando hay más de una asignada. Arranca SIN elegir: lo que
+  // se captura depende de esto y no se puede adivinar.
   if (estado.marcas.length > 1) {
-    partes.push(selectorHTML("sel-marca", "Marca", estado.marcas.map((m) => [m.id, m.nombre]), estado.marca!.id));
+    partes.push(
+      selectorHTML(
+        "sel-marca",
+        "Marca",
+        [
+          ["", "— elige la marca —"] as [string, string],
+          ...estado.marcas.map((m) => [m.id, m.nombre] as [string, string]),
+        ],
+        estado.marca?.id ?? ""
+      )
+    );
   }
   // El agente NO se elige aquí: queda fijo por la pantalla de identidad (PIN).
+
+  // Sin marca elegida no se dibuja el resto: qué fotos y qué campos se piden lo
+  // define la config de la marca.
+  if (!estado.marca) {
+    partes.push(
+      `<p class="bs-hint" style="margin-left:0">Elige la marca para empezar a capturar.</p>`
+    );
+    body.innerHTML = partes.join("");
+    $("#sel-marca")!.addEventListener("change", (e) => cambiarMarca((e.target as HTMLSelectElement).value));
+    return;
+  }
 
   // 01 Tienda
   partes.push(`
@@ -288,13 +337,9 @@ function renderFormulario() {
 
   // Wiring
   if (estado.marcas.length > 1) {
-    $("#sel-marca")!.addEventListener("change", (e) => {
-      const id = (e.target as HTMLSelectElement).value;
-      estado.marca = estado.marcas.find((m) => m.id === id) ?? estado.marca;
-      $("#marca-nombre")!.textContent = estado.marca!.nombre;
-      limpiarFormulario();
-      renderFormulario();
-    });
+    $("#sel-marca")!.addEventListener("change", (e) =>
+      cambiarMarca((e.target as HTMLSelectElement).value)
+    );
   }
   $("#notas")!.addEventListener("input", (e) => {
     estado.notas = (e.target as HTMLTextAreaElement).value;
@@ -309,6 +354,16 @@ function renderFormulario() {
   renderGps();
   actualizarValidacion();
   void refrescarGps();
+}
+
+// Cambiar de marca cambia también las cadenas —y por lo tanto las tiendas— que le
+// tocan al agente, así que hay que soltar la tienda elegida y recargar el catálogo.
+async function cambiarMarca(marcaId: string) {
+  estado.marca = estado.marcas.find((m) => m.id === marcaId) ?? null;
+  limpiarFormulario();
+  actualizarQuien();
+  await precargarTiendas();
+  renderFormulario();
 }
 
 function selectorHTML(id: string, etiqueta: string, opciones: [string, string][], sel: string): string {
@@ -359,9 +414,16 @@ async function buscarYRender(texto: string) {
   const cont = $("#resultados-tienda");
   if (!cont || !estado.cliente) return;
   try {
-    const tiendas = await buscarTiendas(estado.cliente.id, texto);
+    // Solo las tiendas de las cadenas asignadas al agente para esta marca.
+    const tiendas = await buscarTiendas(
+      estado.cliente.id,
+      texto,
+      20,
+      estado.agente ?? undefined,
+      estado.marca?.id
+    );
     if (tiendas.length === 0) {
-      cont.innerHTML = `<div style="padding:14px 12px;font-size:13px;color:#5C6660">Sin coincidencias. Revisa la clave de tienda.</div>`;
+      cont.innerHTML = `<div style="padding:14px 12px;font-size:13px;color:#5C6660">Sin coincidencias entre las tiendas que tienes asignadas para esta marca.</div>`;
       return;
     }
     cont.innerHTML = tiendas
@@ -518,6 +580,7 @@ function renderGps() {
 // ---- validación ----
 function faltantes(): string[] {
   const f: string[] = [];
+  if (!estado.marca) f.push("marca");
   if (!estado.tienda) f.push("tienda");
   const fotos = estado.marca?.config_captura?.fotos ?? [];
   for (const s of fotos) if (s.obligatoria && !estado.fotos[s.tipo]) f.push(s.etiqueta.toLowerCase());
