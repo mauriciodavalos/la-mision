@@ -35,7 +35,8 @@ export const claves = {
   // clave depende del agente y de la marca elegida.
   tiendas: (clienteId: string, agenteId?: string, marcaId?: string) =>
     `tiendas:${clienteId}:${agenteId ?? "todos"}:${marcaId ?? "todas"}`,
-  agentes: (clienteId: string) => `agentes:${clienteId}`,
+  // La lista de agentes es global: la identificación empieza por el agente.
+  agentes: () => "agentes",
   asignaciones: (clienteId: string, agenteId: string) =>
     `asignaciones:${clienteId}:${agenteId}`,
 };

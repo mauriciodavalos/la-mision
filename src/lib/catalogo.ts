@@ -175,41 +175,27 @@ export async function buscarTiendas(
     .slice(0, limite);
 }
 
-// Agentes que pueden identificarse en este cliente: los que tienen membresía MÁS
-// los admins, que entran a cualquier cliente sin necesitar fila de membresía.
-// pin_salt/pin_hash vienen para poder validar el PIN sin señal (fase 1).
-export async function listarAgentes(clienteId: string): Promise<Agente[]> {
-  return cache.redPrimero(cache.claves.agentes(clienteId), async () => {
-    const [ligados, admins] = await Promise.all([
-      supabase
-        .from("agente_cliente")
-        .select("agentes(id, nombre, activo, es_admin, pin_salt, pin_hash)")
-        .eq("cliente_id", clienteId),
-      supabase
-        .from("agentes")
-        .select("id, nombre, activo, es_admin, pin_salt, pin_hash")
-        .eq("es_admin", true),
-    ]);
-    if (ligados.error) throw ligados.error;
-    if (admins.error) throw admins.error;
-
-    const crudos = [
-      ...(ligados.data ?? []).map((r: any) => r.agentes),
-      ...(admins.data ?? []),
-    ];
-
-    // Un admin con membresía saldría dos veces: se deduplica por id.
-    const porId = new Map<string, Agente>();
-    for (const a of crudos) {
-      if (!a || a.activo === false || porId.has(a.id)) continue;
-      porId.set(a.id, {
-        id: a.id,
-        nombre: a.nombre,
-        es_admin: a.es_admin === true,
-        pin_salt: a.pin_salt,
-        pin_hash: a.pin_hash,
-      });
-    }
-    return [...porId.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, "es-MX"));
+// Todos los agentes activos. La identificación empieza por el AGENTE y de ahí se
+// deriva la empresa (ver identidad-ui.ts): el agente sabe cómo se llama, no en qué
+// cliente está dado de alta.
+//
+// pin_salt/pin_hash vienen para poder validar el PIN sin señal (fase 1). Ver la
+// nota de alcance en 0004_pin_agente.sql: en fase 1 esto es legible con la key
+// publishable de todos modos.
+export async function listarAgentes(): Promise<Agente[]> {
+  return cache.redPrimero(cache.claves.agentes(), async () => {
+    const { data, error } = await supabase
+      .from("agentes")
+      .select("id, nombre, activo, es_admin, pin_salt, pin_hash")
+      .eq("activo", true)
+      .order("nombre");
+    if (error) throw error;
+    return (data ?? []).map((a: any) => ({
+      id: a.id,
+      nombre: a.nombre,
+      es_admin: a.es_admin === true,
+      pin_salt: a.pin_salt,
+      pin_hash: a.pin_hash,
+    })) as Agente[];
   });
 }

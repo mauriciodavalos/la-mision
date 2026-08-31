@@ -153,6 +153,15 @@ hasta que eso pase.
   - Las llaves del cache llevan el id del agente: en un equipo compartido, Carmen
     no debe ver el catálogo cacheado de Lalo.
 
+- **La identificación empieza por el AGENTE, no por la empresa.** Al probarlo en
+  campo, Mauricio reportó que elegir primero la empresa era confuso: el agente sabe
+  cómo se llama, no necesariamente para qué razón social está dado de alta.
+  Ahora: nombre → (empresa, solo si atiende a más de una) → PIN. Con una sola
+  empresa no se le pregunta, solo se le muestra cuál es. El PIN aparece hasta que
+  hay agente y empresa, para que no se teclee antes de tiempo.
+  Implica que `listarAgentes()` es global en vez de por cliente. En fase 1 eso no
+  expone nada nuevo: la key publishable ya permite leer la tabla completa.
+
 ### Pendiente de decidir — una base de datos por cliente
 Se planteó dar URL y base independientes por marca. Análisis: **URL por cliente sí**
 (slug → `cliente_id`; barato, y de paso fija el tenant), **base por cliente no**:
