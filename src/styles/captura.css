@@ -1,6 +1,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600&family=Roboto+Mono:wght@400;500&display=swap');
 
-.bs-root {
+/* La paleta va en :root además de .bs-root a propósito.
+   El popup (modal.ts) y la cámara (camara.ts) se cuelgan de <body>, o sea FUERA
+   de #app.bs-root: si las variables vivieran solo ahí, no resolverían a nada y
+   esos elementos saldrían con fondo transparente y texto del color por omisión.
+   Pasó en producción el 1 de septiembre — el popup era ilegible y el disparador
+   de la cámara, invisible sobre negro. */
+:root, .bs-root {
   --petrol: #123B3A;
   --petrol-dp: #0C2A29;
   --steel: #E6E8E3;
@@ -275,37 +281,58 @@
 }
 
 /* ---- popups (modal.ts) ---- */
-/* Anclado abajo en el teléfono: es donde alcanza el pulgar. En pantallas
-   grandes se centra. */
+/* Centrado en la pantalla, siempre. Y con colores literales, no solo variables:
+   este bloque vive fuera de .bs-root (ver la nota de la paleta arriba), así que
+   no puede depender de que algo herede. Tampoco hereda `box-sizing`, por eso va
+   explícito aquí. */
+.bs-modal-fondo, .bs-modal-fondo * { box-sizing: border-box; }
 .bs-modal-fondo {
   position: fixed; inset: 0; z-index: 9998;
-  background: rgba(12,26,27,.55);
-  display: flex; align-items: flex-end; justify-content: center;
-  padding: 16px; padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  background: rgba(8,20,20,.72);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  font-family: 'Archivo', system-ui, sans-serif;
 }
 .bs-modal {
-  background: var(--paper); color: var(--petrol-dp);
-  border-radius: 14px; padding: 20px; width: 100%; max-width: 420px;
-  max-height: 85vh; overflow-y: auto;
-  box-shadow: 0 12px 40px rgba(0,0,0,.35);
-  border-top: 4px solid var(--petrol);
+  background: #FFFFFF; color: #14181B;
+  border-radius: 16px; padding: 24px 22px; width: 100%; max-width: 420px;
+  max-height: 82vh; overflow-y: auto;
+  box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  border-top: 5px solid #123B3A;
 }
-.bs-modal.is-exito { border-top-color: #2E7D5B; }
-.bs-modal.is-alerta { border-top-color: var(--alert); }
-.bs-modal-t { font-size: 17px; line-height: 1.3; margin: 0 0 8px; }
-.bs-modal-c { font-size: 14px; line-height: 1.55; margin: 0; color: #3A4644; }
-.bs-modal-pasos { margin: 12px 0 0; padding-left: 22px; }
-.bs-modal-pasos li { font-size: 13.5px; line-height: 1.55; margin-bottom: 7px; }
+.bs-modal.is-exito { border-top-color: #1F7A54; }
+.bs-modal.is-alerta { border-top-color: #C4462B; }
+
+.bs-modal-t {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .01em;
+  font-size: 26px; line-height: 1.1; margin: 0 0 10px; color: #0C2A29;
+}
+.bs-modal.is-exito .bs-modal-t { color: #1F7A54; }
+.bs-modal.is-alerta .bs-modal-t { color: #A8371F; }
+/* Texto principal en negro casi puro: se lee con el teléfono al sol, dentro de
+   una tienda, que es donde se usa. */
+.bs-modal-c { font-size: 15.5px; line-height: 1.6; margin: 0; color: #1B2422; }
+.bs-modal-pasos { margin: 14px 0 0; padding-left: 24px; color: #1B2422; }
+.bs-modal-pasos li { font-size: 15px; line-height: 1.6; margin-bottom: 9px; }
+.bs-modal-pasos li::marker { font-weight: 600; color: #123B3A; }
 .bs-modal-n {
-  font-size: 12px; line-height: 1.5; color: #5C6660; margin: 12px 0 0;
+  font-size: 13px; line-height: 1.55; color: #4A5450; margin: 14px 0 0;
   word-break: break-word;
 }
-.bs-modal-b { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
-.bs-modal .bs-mini.is-principal {
-  background: var(--petrol); border-color: var(--petrol); color: var(--paper);
+.bs-modal-b { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+/* Botones grandes: se tocan con el pulgar, no con un cursor. */
+.bs-modal .bs-mini {
+  font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .08em; font-size: 15px;
+  padding: 13px 20px; border-radius: 8px; cursor: pointer;
+  background: #FFFFFF; color: #123B3A; border: 2px solid #123B3A;
+  flex: 1 1 auto; min-height: 48px;
 }
-.bs-modal.is-exito .bs-mini.is-principal { background: #2E7D5B; border-color: #2E7D5B; }
-@media (min-width: 560px) { .bs-modal-fondo { align-items: center; } }
+.bs-modal .bs-mini.is-principal { background: #123B3A; border-color: #123B3A; color: #FFFFFF; }
+.bs-modal.is-exito .bs-mini.is-principal { background: #1F7A54; border-color: #1F7A54; }
+.bs-modal.is-alerta .bs-mini.is-principal { background: #C4462B; border-color: #C4462B; }
+.bs-modal .bs-mini:disabled { opacity: .5; }
 
 /* Aviso discreto: para lo que NO debe interrumpir una captura en curso. */
 .bs-toast {
@@ -326,15 +353,20 @@
 /* Pantalla completa y encima de todo: mientras está abierta es la única
    interfaz. 100dvh, no 100vh, para que la barra del navegador móvil no deje el
    disparador fuera de la pantalla. */
+/* Colores literales, igual que el popup: esto también cuelga de <body> y las
+   variables de .bs-root no llegan hasta aquí. Con var() el disparador salía
+   invisible sobre el fondo negro. */
+.bs-camara, .bs-camara * { box-sizing: border-box; }
 .bs-camara {
   position: fixed; inset: 0; z-index: 9999;
   background: #000; display: flex; flex-direction: column; height: 100dvh;
+  font-family: 'Archivo', system-ui, sans-serif;
 }
 .bs-camara-v { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; }
 .bs-camara-t {
   position: absolute; top: 0; left: 0; right: 0; margin: 0;
-  padding: 12px 16px; color: var(--paper); font-size: 14px; font-weight: 600;
-  background: linear-gradient(rgba(0,0,0,.65), transparent); pointer-events: none;
+  padding: 14px 16px; color: #FFFFFF; font-size: 15px; font-weight: 600;
+  background: linear-gradient(rgba(0,0,0,.75), transparent); pointer-events: none;
 }
 .bs-camara-barra {
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
@@ -342,12 +374,12 @@
   padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
 }
 .bs-camara-x {
-  justify-self: start; background: none; border: 0; color: var(--paper);
-  font-size: 15px; padding: 10px 4px; cursor: pointer;
+  justify-self: start; background: none; border: 0; color: #FFFFFF;
+  font-size: 16px; padding: 12px 4px; cursor: pointer; min-height: 48px;
 }
 .bs-camara-shot {
   width: 72px; height: 72px; border-radius: 50%;
-  background: var(--paper); border: 4px solid rgba(255,255,255,.4); cursor: pointer;
+  background: #FFFFFF; border: 4px solid rgba(255,255,255,.45); cursor: pointer;
 }
 .bs-camara-shot:active { transform: scale(.94); }
 .bs-camara-et { justify-self: end; width: 60px; }

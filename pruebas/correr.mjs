@@ -50,13 +50,15 @@ const suites = [
   ["comprimir — memoria del teléfono", "./comprimir.prueba.mjs", "src/lib/comprimir.ts", "comprimir.mjs"],
   ["rastro — de qué se murió la pestaña", "./rastro.prueba.mjs", "src/lib/rastro.ts", "rastro.mjs"],
   ["avisos — cuándo interrumpir al agente", "./avisos.prueba.mjs", "src/lib/avisos.ts", "avisos.mjs"],
+  // Sin módulo que empaquetar: esta suite revisa el CSS como texto.
+  ["estilos — lo que se cuelga de <body>", "./estilos.prueba.mjs", null, null],
 ];
 
 await mkdir(salida, { recursive: true });
 
 for (const [titulo, prueba, fuente, nombre] of suites) {
   console.log("\n" + titulo);
-  const mod = await bundle(fuente, nombre);
+  const mod = fuente ? await bundle(fuente, nombre) : {};
   const { correr } = await import(prueba);
   await correr(mod, check);
 }
