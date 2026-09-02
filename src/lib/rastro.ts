@@ -31,7 +31,7 @@
 // difícil de saber a distancia: si el teléfono de un agente está corriendo el
 // código nuevo o uno cacheado por el service worker. Se sube junto con VERSION
 // en public/sw.js.
-export const VERSION_APP = "v3";
+export const VERSION_APP = "v4";
 
 const LLAVE = "lamision.rastro";
 const LLAVE_CAIDAS = "lamision.caidas";

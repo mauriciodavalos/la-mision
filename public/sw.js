@@ -15,13 +15,16 @@
 //
 // Costo: baja el egress. El shell deja de descargarse en cada visita.
 
+// v4 (1 sep 2026): confirmación de subida al servidor, popup de ubicación con
+// instrucciones por plataforma, almacenamiento persistente y aviso al cerrar con
+// registros pendientes.
 // v3 (1 sep 2026): cámara dentro de la app y rastro de caídas. El crash de
 // memoria seguía apareciendo con v2, y el rastro sirve justamente para saber si
 // un teléfono está corriendo el bundle nuevo o uno cacheado.
 // v2 (31 ago 2026): ubicación obligatoria, compresión que no revienta la memoria
 // del teléfono y borrador de la captura. Subir la versión es lo que hace que un
 // teléfono con la app instalada tome el bundle nuevo en vez del cacheado.
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE = `lamision-shell-${VERSION}`;
 
 // Lo mínimo para arrancar. Los assets con hash (/_astro/*) se cachean solos al

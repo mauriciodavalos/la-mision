@@ -143,6 +143,36 @@ export async function estadoPermiso(): Promise<
   }
 }
 
+// Pasos para reactivar el permiso, SOLO los del teléfono que tiene el agente.
+//
+// No se puede volver a pedir el permiso desde el código: cuando el navegador
+// guarda un "bloquear" para el sitio, `getCurrentPosition()` responde
+// PERMISSION_DENIED de inmediato, sin mostrar diálogo, y no hay API para
+// revocarlo. Lo único que queda es decirle al agente exactamente dónde tocar.
+//
+// Por eso van separados por plataforma en vez del párrafo que mezclaba los dos:
+// adentro de una tienda, con prisa, leer instrucciones de un teléfono que no es
+// el tuyo para encontrar las tuyas es la diferencia entre resolverlo y no.
+export function instruccionesPermiso(): string[] {
+  const ua = navigator.userAgent;
+  const esIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && "ontouchend" in document);
+
+  if (esIOS) {
+    return [
+      "Ajustes → Privacidad y seguridad → Localización: que esté encendida.",
+      "En esa misma lista busca Safari y elige «Al usar la app».",
+      "Ajustes → Safari → Ubicación: elige «Preguntar» o «Permitir».",
+      "Vuelve a esta pantalla y toca «Ya lo activé».",
+    ];
+  }
+  return [
+    "Baja la cortinilla del teléfono y revisa que la Ubicación esté encendida.",
+    "En Chrome, toca los tres puntos (⋮) → Configuración → Configuración de sitios → Ubicación.",
+    "Busca este sitio en la lista de bloqueados y cámbialo a Permitir.",
+    "Vuelve a esta pantalla y toca «Ya lo activé».",
+  ];
+}
+
 // Qué hacer, en palabras del agente, según por qué falló.
 export function explicar(motivo: MotivoGps): string {
   switch (motivo) {

@@ -651,6 +651,101 @@ en otro lado.
 
 ---
 
+## Sesión del 1 de septiembre — avisos al agente y evidencia que no se desaloja
+
+Salió de dos peticiones de Mauricio (popup al subir un registro, popup cuando falta
+la ubicación) y de una pregunta suya que destapó un hueco más serio.
+
+### El hueco que no estábamos viendo
+
+**Al guardar no pasaba nada visible.** `guardar()` encolaba la visita, limpiaba el
+formulario y lo volvía a dibujar: desde donde está parado el agente, la pantalla
+simplemente se vaciaba. No había confirmación de nada, ni local ni del servidor.
+Y la confirmación del servidor **ya existía pero nadie la veía**: `sincronizar()`
+marca `sincronizado` sólo cuando Supabase confirmó fotos + visita + evidencias,
+pero el evento `cola-cambio` no decía **qué** visita ni si le había ido bien.
+
+### La pregunta que valía más que las dos peticiones
+
+> *"¿Cuándo vuelve a intentar enviar las imágenes? ¿Qué pasaría si cierran la
+> pestaña o le vuelven a picar al link?"*
+
+Revisando para contestarla:
+
+- **Reintentos:** al guardar, al volver la señal, cada 30 s, al abrir la app y con
+  el botón de la barra. Los cinco viven en la página: **al cerrar la pestaña dejan
+  de correr**, y no hay Background Sync a propósito (iOS no lo soporta).
+- **Recargar a media subida es seguro**, y esto sí estaba bien resuelto: la ruta de
+  cada foto es determinista y sube con `upsert`, y visita y evidencias llevan UUID
+  del cliente con `ignoreDuplicates`. El peor caso es resubir ~380 KB; nunca un
+  duplicado ni una pérdida. Una visita sale de "pendiente" sólo cuando el servidor
+  confirmó las tres cosas.
+- **El hueco real: no se pedía `navigator.storage.persist()` en ninguna parte.** Sin
+  eso IndexedDB es *best-effort*: un teléfono corto de espacio puede **desalojar los
+  datos del origen completos**, con visitas sin subir adentro. Era el único camino
+  por el que se podía perder evidencia de verdad — justo en los teléfonos que ya nos
+  habían dado problemas.
+
+### Lo que se hizo
+
+**Popup de subida** (`modal.ts`, nuevo). Al guardar se abre con el nombre de la
+tienda y espera la confirmación **de esa visita**: verde si el servidor la confirmó,
+"queda en cola" si no hay señal o si tarda más de 8 s, y si falla dice que **se
+reintenta solo** — nunca como pérdida, porque un agente que cree que se perdió
+vuelve a capturar y ahí sí habría duplicados.
+
+**Las confirmaciones tardías NO abren popup.** Si el teléfono recupera señal y sube
+tres visitas mientras el agente toma fotos de la cuarta, sale un aviso discreto
+abajo. La regla vive en `avisos.ts` como función pura, aparte de la UI, para poder
+probarla.
+
+**Popup de ubicación, con la bifurcación que lo hace útil.** El permiso **no se
+puede volver a pedir por código** una vez bloqueado: el navegador responde
+`PERMISSION_DENIED` sin mostrar diálogo y no hay API para revocarlo. Pero
+*bloqueado* y *todavía no contesta* son estados distintos, y `estadoPermiso()` los
+distingue — hasta ahora no se usaba para nada:
+
+| Estado | Qué ofrece el popup |
+|---|---|
+| `prompt` | Botón que abre el diálogo real (necesita el gesto del usuario) |
+| `denied` | Los pasos de Ajustes **de su teléfono** (iPhone o Android) y "Ya lo activé" |
+| `granted` | Es señal, no permiso: "sigue buscando", el watch ya está corriendo |
+
+Un botón "Permitir" que no funciona la mitad de las veces enseña al agente a
+ignorar los avisos.
+
+**El botón Guardar deja de estar deshabilitado.** El bloqueo duro se mantiene
+—`guardar()` se niega si falta algo— pero ahora el botón responde y **explica qué
+falta**. Un botón gris con letra chica abajo es exactamente lo que no se ve dentro
+de una tienda. Y si el GPS falla por permiso, el popup sale solo sin esperar al
+final: es el único motivo que no se arregla esperando, y descubrirlo al final es
+perder la visita completa.
+
+**Almacenamiento persistente** (`almacen.ts`, nuevo): `persist()` al arrancar, y
+aviso si quedan menos de 40 MB —unas cien visitas de margen— antes de que empiecen
+a fallar las escrituras, porque cuando fallan lo que se cae es guardar la foto
+recién tomada. Más aviso al cerrar la app con registros pendientes.
+
+### Costo
+
+Bundle de captura 37.9 → 45.7 KB. **Cero red y cero storage en el servidor:** todo
+se alimenta de eventos que ya se producían; no hay una sola llamada nueva a Supabase.
+
+### Archivos
+
+`src/lib/modal.ts`, `src/lib/almacen.ts`, `src/lib/avisos.ts` (nuevos),
+`src/lib/sync.ts` (detalle en `cola-cambio`), `src/lib/gps.ts`
+(`instruccionesPermiso()`), `src/lib/captura-ui.ts`, `src/styles/captura.css`,
+`public/sw.js` + `rastro.ts` a `v4`, `pruebas/avisos.prueba.mjs` (nuevo).
+Sin migraciones, sin dependencias nuevas. `npm run prueba`: 43 comprobaciones.
+
+### Gancho de fase 2
+
+Cuando haya roles y tablero, un fallo de subida debería verse también del lado del
+supervisor, no sólo en el teléfono del agente.
+
+---
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo

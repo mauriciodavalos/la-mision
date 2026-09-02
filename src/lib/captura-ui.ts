@@ -17,12 +17,24 @@ import {
   type Caida,
 } from "./rastro";
 import {
+  estadoPermiso,
   explicar,
   iniciarSeguimiento,
+  instruccionesPermiso,
   obtenerUbicacion,
   type MotivoGps,
   type Ubicacion,
 } from "./gps";
+import { abrirModal, type Modal } from "./modal";
+import { asegurarPersistencia, espacio } from "./almacen";
+import {
+  decidirAviso,
+  LIMITE_ESPERA_MS,
+  textoOtrasSubidas,
+  textoPendientesAlSalir,
+  type Espera,
+} from "./avisos";
+import type { DetalleCola } from "./sync";
 import { buscarTiendas, listarMarcas, listarTiendas } from "./catalogo";
 import * as cola from "./cola";
 import { iniciarSync, sincronizar } from "./sync";
@@ -68,6 +80,18 @@ let regUrls: string[] = []; // objectURLs de la vista Registros (para revocar)
 let detenerGps: (() => void) | null = null;
 // Guardado del borrador con retardo, para no escribir en IndexedDB en cada tecla.
 let debounceBorrador: number | undefined;
+
+// ---- confirmación de subida ----
+// Qué visita está esperando confirmación del servidor, con su popup abierto.
+// Ver avisos.ts para la regla de cuándo interrumpir y cuándo no.
+let espera: Espera | null = null;
+let modalEspera: Modal | null = null;
+let relojEspera: number | undefined;
+
+// El aviso de permiso de ubicación sale solo UNA vez por captura: es el único
+// motivo de GPS que no se arregla esperando, pero repetirlo cada vez que el
+// watch falla lo volvería ruido.
+let avisoPermisoDado = false;
 
 // ---- modo de cámara ----
 //
@@ -160,6 +184,7 @@ function montarEsqueleto(root: HTMLElement) {
     <main class="bs-shell" id="vista-captura"><div class="bs-body" id="form-body"></div></main>
     <main class="bs-shell is-wide" id="vista-registros" hidden><div class="bs-body" id="registros-body"></div></main>
     <main class="bs-shell is-wide" id="vista-historial" hidden><div class="bs-body" id="historial-body"></div></main>
+    <div class="bs-toast" id="toast" role="status" aria-live="polite"></div>
     <div class="bs-queue">
       <div class="bs-queue-in">
         <div class="bs-queue-l">
@@ -735,6 +760,20 @@ async function refrescarGps() {
   }
   renderGps();
   actualizarValidacion();
+  avisarSiFaltaPermiso();
+}
+
+// El permiso bloqueado es el ÚNICO motivo de GPS que no se arregla esperando:
+// no hay diálogo que vuelva a salir y el seguimiento continuo tampoco lo va a
+// resolver. Descubrirlo hasta el final es perder la visita completa, así que se
+// avisa en cuanto se sabe — una sola vez por captura, para no volverlo ruido.
+// Los demás motivos (timeout, no disponible) se quedan en el bloque de GPS:
+// ahí esperar sí sirve.
+function avisarSiFaltaPermiso() {
+  if (estado.gps || avisoPermisoDado) return;
+  if (estado.gpsMotivo !== "permiso") return;
+  avisoPermisoDado = true;
+  void popupUbicacion();
 }
 
 // Seguimiento continuo mientras el agente llena el formulario: le da al GPS toda
@@ -756,6 +795,7 @@ function arrancarSeguimientoGps() {
         estado.gpsMotivo = m;
         renderGps();
         actualizarValidacion();
+        avisarSiFaltaPermiso();
       }
     }
   );
@@ -823,7 +863,11 @@ function actualizarValidacion() {
   const btn = $("#btn-guardar") as HTMLButtonElement | null;
   const msg = $("#msg-faltan");
   if (!btn || !msg) return;
-  btn.disabled = f.length > 0;
+  // El botón NO se deshabilita. El bloqueo sigue siendo duro —guardar() se
+  // niega si falta algo— pero un botón gris con letra chica abajo es
+  // exactamente lo que un agente no ve dentro de una tienda. Tocable, explica
+  // qué falta y qué hacer al respecto.
+  btn.classList.toggle("is-incompleto", f.length > 0);
   if (f.length > 0) {
     msg.style.color = "";
     msg.textContent = "Falta " + f.join(" · ");
@@ -835,9 +879,148 @@ function actualizarValidacion() {
   }
 }
 
+// ---- popup de ubicación ----
+//
+// El permiso NO se puede volver a pedir por código una vez que el agente eligió
+// bloquear: el navegador contesta PERMISSION_DENIED sin mostrar diálogo y no hay
+// API para revocarlo. Pero "bloqueado" y "todavía no contesta" son estados
+// distintos, y estadoPermiso() los distingue. De eso depende qué botón tiene
+// sentido ofrecer: uno que abra el diálogo real, o las instrucciones de Ajustes.
+async function popupUbicacion() {
+  const permiso = await estadoPermiso();
+  const motivo = estado.gpsMotivo;
+
+  if (permiso === "denied" || motivo === "permiso") {
+    abrirModal({
+      titulo: "La ubicación está bloqueada",
+      cuerpo:
+        "Sin ubicación no se puede guardar el registro: una foto de exhibición sin " +
+        "coordenadas no se puede auditar. El navegador ya no puede volver a preguntar " +
+        "solo — hay que activarla a mano:",
+      pasos: instruccionesPermiso(),
+      tono: "alerta",
+      acciones: [
+        {
+          texto: "Ya lo activé",
+          principal: true,
+          cierra: false,
+          alTocar: async () => {
+            await refrescarGps();
+            arrancarSeguimientoGps();
+            if (estado.gps) {
+              abrirModal({
+                titulo: "Ubicación lista",
+                cuerpo: `Precisión de ± ${estado.gps.precision} m. Ya puedes guardar el registro.`,
+                tono: "exito",
+                acciones: [{ texto: "Continuar", principal: true }],
+              });
+            } else {
+              await popupUbicacion();
+            }
+          },
+        },
+        { texto: "Cerrar" },
+      ],
+    });
+    return;
+  }
+
+  if (permiso === "prompt" || permiso === "desconocido") {
+    // Aquí el diálogo del navegador SÍ puede volver a salir, pero necesita un
+    // gesto del usuario: por eso va detrás de un botón y no automático.
+    abrirModal({
+      titulo: "Falta permitir la ubicación",
+      cuerpo:
+        "La app necesita la ubicación del teléfono para poder guardar el registro. " +
+        "Toca el botón y acepta el aviso que aparece.",
+      acciones: [
+        {
+          texto: "Permitir ubicación",
+          principal: true,
+          cierra: false,
+          alTocar: async () => {
+            await refrescarGps();
+            arrancarSeguimientoGps();
+            if (estado.gps) {
+              abrirModal({
+                titulo: "Ubicación lista",
+                cuerpo: `Precisión de ± ${estado.gps.precision} m. Ya puedes guardar el registro.`,
+                tono: "exito",
+                acciones: [{ texto: "Continuar", principal: true }],
+              });
+            } else {
+              await popupUbicacion();
+            }
+          },
+        },
+        { texto: "Cerrar" },
+      ],
+    });
+    return;
+  }
+
+  // Permiso concedido: no es permiso, es señal. Esperar aquí sí sirve, y el
+  // seguimiento continuo suele resolverlo sin que el agente haga nada.
+  abrirModal({
+    titulo: "Todavía no encuentra la ubicación",
+    cuerpo: explicar(motivo ?? "timeout"),
+    nota: "La app sigue buscando sola mientras llenas el formulario.",
+    acciones: [
+      {
+        texto: "Buscar de nuevo",
+        principal: true,
+        cierra: false,
+        alTocar: async () => {
+          await refrescarGps();
+          if (estado.gps) {
+            abrirModal({
+              titulo: "Ubicación lista",
+              cuerpo: `Precisión de ± ${estado.gps.precision} m. Ya puedes guardar el registro.`,
+              tono: "exito",
+              acciones: [{ texto: "Continuar", principal: true }],
+            });
+          }
+        },
+      },
+      { texto: "Cerrar" },
+    ],
+  });
+}
+
+// ---- aviso discreto (no interrumpe la captura) ----
+let relojToast: number | undefined;
+function avisoDiscreto(texto: string) {
+  const cont = $("#toast");
+  if (!cont) return;
+  cont.textContent = texto;
+  cont.classList.add("is-on");
+  window.clearTimeout(relojToast);
+  relojToast = window.setTimeout(() => cont.classList.remove("is-on"), 4000);
+}
+
 // ---- guardar ----
 async function guardar() {
-  if (faltantes().length > 0) return;
+  const f = faltantes();
+  if (f.length > 0) {
+    // El bloqueo se mantiene: no se guarda. Pero ahora se explica.
+    if (f.length === 1 && f[0] === "ubicación") {
+      await popupUbicacion();
+    } else {
+      abrirModal({
+        titulo: "Falta completar el registro",
+        cuerpo: "Antes de guardar hace falta:",
+        pasos: f,
+        tono: "alerta",
+        acciones: [
+          ...(f.includes("ubicación")
+            ? [{ texto: "Ver lo de la ubicación", alTocar: () => void popupUbicacion(), cierra: false }]
+            : []),
+          { texto: "Entendido", principal: true },
+        ],
+      });
+    }
+    return;
+  }
   const m = estado.marca!;
   const t = estado.tienda!;
   const ahora = new Date().toISOString();
@@ -872,7 +1055,88 @@ async function guardar() {
   limpiarFormulario();
   renderFormulario();
   await refrescarQueue();
+
+  esperarConfirmacion(visita.id, t.nombre ?? "la tienda");
   void sincronizar(); // intenta subir ya si hay señal
+}
+
+// Abre el popup de confirmación y se queda esperando a que el SERVIDOR confirme
+// esta visita en particular (ver el detalle de `cola-cambio` en sync.ts).
+//
+// Antes de esto, al guardar la pantalla simplemente se vaciaba: el agente no
+// tenía forma de saber si su trabajo había quedado registrado, mucho menos si
+// había llegado al servidor.
+function esperarConfirmacion(id: string, tienda: string) {
+  espera = { id, desde: Date.now() };
+  modalEspera = abrirModal({
+    titulo: "Registro guardado",
+    cuerpo: `${tienda} — ${navigator.onLine ? "subiendo al servidor…" : "sin señal"}`,
+    nota: navigator.onLine
+      ? undefined
+      : "Queda guardado en el teléfono y se sube solo cuando haya señal.",
+    descartable: false,
+    acciones: navigator.onLine ? [] : [{ texto: "Entendido", principal: true }],
+  });
+
+  // Sin señal no hay nada que esperar: el popup ya dice lo que va a pasar.
+  if (!navigator.onLine) {
+    dejarDeEsperar();
+    return;
+  }
+
+  window.clearTimeout(relojEspera);
+  relojEspera = window.setTimeout(() => {
+    // Tardó demasiado. No se deja al agente mirando una rueda: la visita está
+    // encolada y se sube sola, que es lo único que necesita saber.
+    modalEspera?.actualizar({
+      titulo: "Guardado en el teléfono",
+      cuerpo: `${tienda} — la subida está tardando. Queda en la cola y se sube solo.`,
+      nota: "No hace falta esperar aquí. Puedes seguir capturando.",
+      acciones: [{ texto: "Entendido", principal: true }],
+    });
+    dejarDeEsperar();
+  }, LIMITE_ESPERA_MS);
+}
+
+function dejarDeEsperar() {
+  window.clearTimeout(relojEspera);
+  espera = null;
+}
+
+// Reacciona a lo que el sync acaba de confirmar o fallar.
+function atenderCola(d: DetalleCola) {
+  const aviso = decidirAviso(espera, d);
+  switch (aviso.tipo) {
+    case "propia-subida":
+      modalEspera?.actualizar({
+        titulo: "Registro subido al servidor",
+        cuerpo: "La visita y sus fotos ya están guardadas en el servidor.",
+        tono: "exito",
+        acciones: [{ texto: "Listo", principal: true }],
+      });
+      dejarDeEsperar();
+      break;
+    case "propia-fallo":
+      // NUNCA se presenta como pérdida: la visita sigue en la cola y se
+      // reintenta sola. Decir "no se pudo" a secas haría que el agente
+      // recapturara la visita, y ahí sí habría duplicados.
+      modalEspera?.actualizar({
+        titulo: "Todavía no se pudo subir",
+        cuerpo:
+          "El registro está guardado en el teléfono y se reintenta solo. " +
+          "No hace falta volver a capturarlo.",
+        nota: aviso.error,
+        tono: "alerta",
+        acciones: [{ texto: "Entendido", principal: true }],
+      });
+      dejarDeEsperar();
+      break;
+    case "otras-subidas":
+      // Confirmaciones tardías: aviso discreto. Un popup aquí interrumpiría la
+      // captura siguiente, y al volver la señal pueden confirmarse varias juntas.
+      avisoDiscreto(textoOtrasSubidas(aviso.cuantas));
+      break;
+  }
 }
 
 function limpiarFormulario() {
@@ -887,6 +1151,8 @@ function limpiarFormulario() {
   estado.notas = "";
   estado.cargandoFoto = {};
   estado.erroresFoto = {};
+  // Empieza otra captura: si el permiso sigue bloqueado, vuelve a avisarse.
+  avisoPermisoDado = false;
 }
 
 // ---- borrador: la captura a medio hacer no se pierde ----
@@ -1206,15 +1472,44 @@ async function verFotos(btn: HTMLButtonElement) {
 }
 
 // ---- barra de cola ----
+// Último conteo de pendientes. `beforeunload` es síncrono: no puede consultar
+// IndexedDB, así que necesita el dato ya calculado.
+let pendientesCache = 0;
+
 async function refrescarQueue() {
   const visitas = await cola.listar();
   const pend = visitas.filter((v) => v.estado === "pendiente" || v.estado === "error").length;
+  pendientesCache = pend;
   $("#tab-count")!.textContent = String(visitas.length);
   const n = $("#queue-n")!;
   n.textContent = String(pend).padStart(2, "0");
   n.className = "bs-queue-n" + (pend ? "" : " is-clear");
   $("#queue-sub")!.textContent =
     pend === 0 ? "Todo sincronizado" : navigator.onLine ? "Subiendo en segundo plano…" : "Guardados en el teléfono";
+}
+
+// ---- almacenamiento del teléfono ----
+//
+// Dos cosas distintas:
+//  1. Pedir almacenamiento PERSISTENTE, que saca a la app de la lista de
+//     desalojo automático del navegador. Sin esto, un teléfono corto de espacio
+//     puede borrar los datos del sitio completos, con visitas sin subir adentro.
+//  2. Avisar si el espacio se está acabando, ANTES de que fallen las escrituras:
+//     cuando fallan, lo que se cae es guardar la foto recién tomada.
+async function revisarAlmacenamiento() {
+  await asegurarPersistencia();
+
+  const e = await espacio();
+  if (!e?.apretado) return;
+  abrirModal({
+    titulo: "Al teléfono le queda poco espacio",
+    cuerpo:
+      `Quedan ${e.libreMB} MB libres para la app. Si se llena, el teléfono puede ` +
+      `dejar de guardar las fotos que tomes.`,
+    nota: "Borra fotos o apps que no uses. Los registros ya subidos se liberan solos a las 48 horas.",
+    tono: "alerta",
+    acciones: [{ texto: "Entendido", principal: true }],
+  });
 }
 
 // ---- caídas del navegador ----
@@ -1289,10 +1584,32 @@ export async function init() {
     actualizarValidacion();
     void refrescarQueue();
   });
-  window.addEventListener("cola-cambio", () => {
+  window.addEventListener("cola-cambio", (e) => {
     void refrescarQueue();
     if (estado.vista === "registros") void refrescarRegistros();
+    const d = (e as CustomEvent<DetalleCola>).detail;
+    // purgarSilencioso() también dispara este evento, sin detalle.
+    if (d) atenderCola(d);
   });
+
+  // Avisar si se cierra la app con evidencia sin subir. Los reintentos viven en
+  // la página: al cerrarla dejan de correr hasta que se vuelva a abrir. La cola
+  // en IndexedDB sobrevive, así que no se pierde nada — pero el agente merece
+  // saber que quedó trabajo colgado.
+  window.addEventListener("beforeunload", (e) => {
+    if (pendientesCache <= 0) return;
+    e.preventDefault();
+    // `returnValue` está marcado como deprecado, pero Chrome todavía lo exige
+    // para mostrar el diálogo: solo con preventDefault() no sale nada. El texto
+    // propio ya no se muestra (los navegadores ponen el suyo), y aun así se
+    // manda: es lo que quedaría si algún navegador vuelve a respetarlo.
+    e.returnValue = textoPendientesAlSalir(pendientesCache) ?? "";
+  });
+
+  // Sacar la cola de la lista de desalojo del navegador. Sin esto, IndexedDB es
+  // "best-effort" y un teléfono corto de espacio puede llevarse las visitas sin
+  // subir. Es el único camino por el que hoy se podía perder evidencia.
+  void revisarAlmacenamiento();
 
   await cargarContexto(ctx);
   // Con el formulario ya montado: si quedó una captura a medias, ofrecerla.

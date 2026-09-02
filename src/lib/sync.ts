@@ -78,8 +78,19 @@ function rutaFoto(v: VisitaPendiente, foto: { id: string; tipo: string }): strin
 }
 
 // Avisa a la UI que la cola cambió (para refrescar contadores y la lista).
-function notificar() {
-  window.dispatchEvent(new CustomEvent("cola-cambio"));
+//
+// El detalle dice QUÉ visitas se confirmaron o fallaron en esta pasada. Sin eso,
+// la UI sabe que "algo cambió" pero no puede confirmarle al agente que SU
+// registro llegó al servidor, que es lo único que de verdad quiere saber.
+// Aditivo: quien solo escucha el evento para refrescar contadores ignora el
+// detalle y sigue funcionando igual.
+export interface DetalleCola {
+  subidas: string[];
+  errores: { id: string; error: string }[];
+}
+
+function notificar(detail: DetalleCola = { subidas: [], errores: [] }) {
+  window.dispatchEvent(new CustomEvent<DetalleCola>("cola-cambio", { detail }));
 }
 
 // Sube una sola visita. Lanza si algo falla (para reintentar después).
@@ -162,14 +173,12 @@ export async function sincronizar(): Promise<void> {
           subida_en: new Date().toISOString(),
           ultimo_error: undefined,
         });
+        notificar({ subidas: [v.id], errores: [] });
       } catch (e) {
-        await cola.guardar({
-          ...v,
-          estado: "error",
-          ultimo_error: e instanceof Error ? e.message : String(e),
-        });
+        const error = e instanceof Error ? e.message : String(e);
+        await cola.guardar({ ...v, estado: "error", ultimo_error: error });
+        notificar({ subidas: [], errores: [{ id: v.id, error }] });
       }
-      notificar();
     }
   } finally {
     sincronizando = false;
