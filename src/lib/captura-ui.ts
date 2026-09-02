@@ -430,7 +430,7 @@ function renderFormulario() {
     </section>`);
 
   partes.push(`
-    <button class="bs-submit" id="btn-guardar" disabled>Guardar registro</button>
+    <button class="bs-submit" id="btn-guardar">Guardar registro</button>
     <p class="bs-missing" id="msg-faltan"></p>`);
 
   body.innerHTML = partes.join("");
@@ -867,6 +867,11 @@ function actualizarValidacion() {
   // niega si falta algo— pero un botón gris con letra chica abajo es
   // exactamente lo que un agente no ve dentro de una tienda. Tocable, explica
   // qué falta y qué hacer al respecto.
+  //
+  // Se fuerza `disabled = false` a propósito, aunque el HTML ya no lo ponga:
+  // quitar la línea que lo habilitaba sin quitar el atributo del marcado dejó
+  // el botón muerto en producción (1 sep). Que quede explícito aquí.
+  btn.disabled = false;
   btn.classList.toggle("is-incompleto", f.length > 0);
   if (f.length > 0) {
     msg.style.color = "";
