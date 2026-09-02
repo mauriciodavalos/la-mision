@@ -19,6 +19,7 @@ import {
 import {
   estadoPermiso,
   explicar,
+  explicarBreve,
   iniciarSeguimiento,
   instruccionesPermiso,
   obtenerUbicacion,
@@ -897,11 +898,11 @@ async function popupUbicacion() {
 
   if (permiso === "denied" || motivo === "permiso") {
     abrirModal({
-      titulo: "La ubicación está bloqueada",
-      cuerpo:
-        "Sin ubicación no se puede guardar el registro: una foto de exhibición sin " +
-        "coordenadas no se puede auditar. El navegador ya no puede volver a preguntar " +
-        "solo — hay que activarla a mano:",
+      // Corto a propósito: el agente está de pie en una tienda. Lo único que
+      // necesita saber es que hace falta y cómo activarla; el porqué está en el
+      // aviso en línea del bloque de GPS, para quien lo quiera leer.
+      titulo: "Falta la ubicación",
+      cuerpo: "Se necesita para guardar el registro. Actívala así:",
       pasos: instruccionesPermiso(),
       tono: "alerta",
       acciones: [
@@ -915,7 +916,7 @@ async function popupUbicacion() {
             if (estado.gps) {
               abrirModal({
                 titulo: "Ubicación lista",
-                cuerpo: `Precisión de ± ${estado.gps.precision} m. Ya puedes guardar el registro.`,
+                cuerpo: `Precisión de ± ${estado.gps.precision} m.`,
                 tono: "exito",
                 acciones: [{ texto: "Continuar", principal: true }],
               });
@@ -934,10 +935,8 @@ async function popupUbicacion() {
     // Aquí el diálogo del navegador SÍ puede volver a salir, pero necesita un
     // gesto del usuario: por eso va detrás de un botón y no automático.
     abrirModal({
-      titulo: "Falta permitir la ubicación",
-      cuerpo:
-        "La app necesita la ubicación del teléfono para poder guardar el registro. " +
-        "Toca el botón y acepta el aviso que aparece.",
+      titulo: "Falta la ubicación",
+      cuerpo: "Se necesita para guardar el registro. Toca el botón y acepta el aviso.",
       acciones: [
         {
           texto: "Permitir ubicación",
@@ -949,7 +948,7 @@ async function popupUbicacion() {
             if (estado.gps) {
               abrirModal({
                 titulo: "Ubicación lista",
-                cuerpo: `Precisión de ± ${estado.gps.precision} m. Ya puedes guardar el registro.`,
+                cuerpo: `Precisión de ± ${estado.gps.precision} m.`,
                 tono: "exito",
                 acciones: [{ texto: "Continuar", principal: true }],
               });
@@ -967,8 +966,8 @@ async function popupUbicacion() {
   // Permiso concedido: no es permiso, es señal. Esperar aquí sí sirve, y el
   // seguimiento continuo suele resolverlo sin que el agente haga nada.
   abrirModal({
-    titulo: "Todavía no encuentra la ubicación",
-    cuerpo: explicar(motivo ?? "timeout"),
+    titulo: "Buscando la ubicación",
+    cuerpo: explicarBreve(motivo ?? "timeout"),
     nota: "La app sigue buscando sola mientras llenas el formulario.",
     acciones: [
       {
@@ -1012,8 +1011,8 @@ async function guardar() {
       await popupUbicacion();
     } else {
       abrirModal({
-        titulo: "Falta completar el registro",
-        cuerpo: "Antes de guardar hace falta:",
+        titulo: "Falta completar",
+        cuerpo: "Antes de guardar:",
         pasos: f,
         tono: "alerta",
         acciones: [

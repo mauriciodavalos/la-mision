@@ -157,20 +157,37 @@ export function instruccionesPermiso(): string[] {
   const ua = navigator.userAgent;
   const esIOS = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && "ontouchend" in document);
 
+  // Cortas a propósito: se leen de pie, dentro de una tienda, con prisa. El paso
+  // de "vuelve y toca Ya lo activé" no va — el botón está ahí abajo.
   if (esIOS) {
     return [
-      "Ajustes → Privacidad y seguridad → Localización: que esté encendida.",
-      "En esa misma lista busca Safari y elige «Al usar la app».",
-      "Ajustes → Safari → Ubicación: elige «Preguntar» o «Permitir».",
-      "Vuelve a esta pantalla y toca «Ya lo activé».",
+      "Ajustes → Privacidad → Localización: encendida.",
+      "En esa lista, Safari → «Al usar la app».",
+      "Ajustes → Safari → Ubicación → Permitir.",
     ];
   }
   return [
-    "Baja la cortinilla del teléfono y revisa que la Ubicación esté encendida.",
-    "En Chrome, toca los tres puntos (⋮) → Configuración → Configuración de sitios → Ubicación.",
-    "Busca este sitio en la lista de bloqueados y cámbialo a Permitir.",
-    "Vuelve a esta pantalla y toca «Ya lo activé».",
+    "Ubicación del teléfono encendida.",
+    // Con palabras y no con "⋮": ese carácter se ve como dos puntos en varias
+    // tipografías de Android.
+    "Chrome → los 3 puntos → Configuración de sitios → Ubicación.",
+    "Cambia este sitio a Permitir.",
   ];
+}
+
+// Versión de una línea, para el popup. `explicar()` se queda para el aviso en
+// línea del bloque de GPS, donde sí hay lugar para el detalle.
+export function explicarBreve(motivo: MotivoGps): string {
+  switch (motivo) {
+    case "permiso":
+      return "La ubicación está bloqueada para esta app.";
+    case "no_disponible":
+      return "Revisa que la ubicación del teléfono esté encendida.";
+    case "timeout":
+      return "Adentro tarda. Acércate a la entrada.";
+    case "sin_soporte":
+      return "Abre la app en Chrome o Safari.";
+  }
 }
 
 // Qué hacer, en palabras del agente, según por qué falló.
