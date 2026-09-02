@@ -16,6 +16,8 @@
 // viene a 1600 px de lado mayor (~7.7 MB en vez de ~48 MB). Misma foto de salida,
 // una fracción de la memoria.
 
+import { marcar } from "./rastro";
+
 const MAX_DIM = 1600; // lado mayor máximo en px
 const CALIDAD = 0.8;  // calidad WebP
 const SONDA = 64;     // lado del sondeo que solo sirve para saber la orientación
@@ -45,39 +47,80 @@ async function esHorizontal(file: File | Blob): Promise<boolean> {
   return horizontal;
 }
 
-async function decodificarEscalado(file: File | Blob): Promise<ImageBitmap> {
+// Respaldo para navegadores que no aceptan las opciones de escalado.
+//
+// Antes esto caía a `createImageBitmap(file)` a secas, o sea EXACTAMENTE la
+// línea que reventaba la memoria en campo: el respaldo del arreglo era el bug.
+// Con <img> el decodificado lo hace el pipeline de imágenes del navegador, que
+// en Android sí aplica decodificado a escala reducida para JPEG grandes, y
+// además no deja un ImageBitmap vivo junto al canvas.
+async function decodificarConImg(file: File | Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await (img.decode
+      ? img.decode()
+      : new Promise<void>((res, rej) => {
+          img.onload = () => res();
+          img.onerror = () => rej(new Error("No se pudo decodificar la imagen"));
+        }));
+    return img;
+  } finally {
+    // Se revoca de inmediato: el navegador ya tiene los píxeles decodificados y
+    // dejar la URL viva mantiene el archivo original en memoria.
+    URL.revokeObjectURL(url);
+  }
+}
+
+type Fuente =
+  | { clase: "bitmap"; img: ImageBitmap; ancho: number; alto: number }
+  | { clase: "img"; img: HTMLImageElement; ancho: number; alto: number };
+
+async function decodificarEscalado(file: File | Blob): Promise<Fuente> {
   try {
     const opciones: ImageBitmapOptions = (await esHorizontal(file))
       ? { resizeWidth: MAX_DIM, resizeQuality: "high" }
       : { resizeHeight: MAX_DIM, resizeQuality: "high" };
-    return await createImageBitmap(file, opciones);
+    const bm = await createImageBitmap(file, opciones);
+    marcar("decodificado", `escalado nativo ${bm.width}×${bm.height}`);
+    return { clase: "bitmap", img: bm, ancho: bm.width, alto: bm.height };
   } catch {
-    // Navegador que no acepta las opciones de escalado: se cae a la ruta de
-    // antes. Gasta más memoria, pero es mejor que no poder capturar.
-    return createImageBitmap(file);
+    // Si llegamos aquí en un teléfono que se cae, el rastro lo dirá: es la
+    // segunda hipótesis del crash de campo.
+    marcar("decodificando", "respaldo: sin escalado nativo");
+    const img = await decodificarConImg(file);
+    marcar("decodificado", `respaldo ${img.naturalWidth}×${img.naturalHeight}`);
+    return { clase: "img", img, ancho: img.naturalWidth, alto: img.naturalHeight };
   }
 }
 
 export async function comprimir(file: File | Blob): Promise<Comprimida> {
-  const bitmap = await decodificarEscalado(file);
+  marcar("comprimiendo", `${file.size} bytes`);
+  const fuente = await decodificarEscalado(file);
+  const soltar = () => {
+    if (fuente.clase === "bitmap") fuente.img.close?.();
+    else fuente.img.src = "";
+  };
 
   // Si el escalado nativo funcionó, esto ya es 1 y no reescala. Si se cayó al
   // respaldo, aquí es donde la imagen se reduce.
-  const escala = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+  const escala = Math.min(1, MAX_DIM / Math.max(fuente.ancho, fuente.alto));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * escala);
-  canvas.height = Math.round(bitmap.height * escala);
+  canvas.width = Math.round(fuente.ancho * escala);
+  canvas.height = Math.round(fuente.alto * escala);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) {
-    bitmap.close?.();
+    soltar();
     throw new Error("No se pudo obtener el contexto 2D del canvas");
   }
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  // El bitmap ya no hace falta: se suelta ANTES de codificar el WebP, para no
+  ctx.drawImage(fuente.img, 0, 0, canvas.width, canvas.height);
+  // La fuente ya no hace falta: se suelta ANTES de codificar el WebP, para no
   // tener las dos copias en memoria al mismo tiempo.
-  bitmap.close?.();
+  soltar();
 
+  marcar("codificando", `${canvas.width}×${canvas.height} a WebP`);
   const blob = await new Promise<Blob | null>((res) =>
     canvas.toBlob(res, "image/webp", CALIDAD)
   );
@@ -90,6 +133,7 @@ export async function comprimir(file: File | Blob): Promise<Comprimida> {
   canvas.height = 0;
 
   if (!blob) throw new Error("No se pudo comprimir la imagen a WebP");
+  marcar("comprimido", `${ancho}×${alto} · ${blob.size} bytes`);
 
   return {
     blob,

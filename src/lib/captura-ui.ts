@@ -3,7 +3,19 @@
 // encola en IndexedDB y dispara la sincronización. HTML-first: la página Astro monta
 // este script sobre #app.
 
-import { comprimir, kb } from "./comprimir";
+import { comprimir, kb, type Comprimida } from "./comprimir";
+import { explicarCamara, soportaCamara, tomarFoto } from "./camara";
+import {
+  comoTexto,
+  listarCaidas,
+  marcar,
+  murioEnLaCamara,
+  olvidarCaidas,
+  revisarCaida,
+  VERSION_APP,
+  cerrar as cerrarRastro,
+  type Caida,
+} from "./rastro";
 import {
   explicar,
   iniciarSeguimiento,
@@ -57,6 +69,30 @@ let detenerGps: (() => void) | null = null;
 // Guardado del borrador con retardo, para no escribir en IndexedDB en cada tecla.
 let debounceBorrador: number | undefined;
 
+// ---- modo de cámara ----
+//
+// Por omisión se usa la cámara del sistema (`<input capture>`), que da la mejor
+// foto. En los teléfonos donde salir de la app mata la pestaña por memoria, se
+// usa la cámara dentro de la app (camara.ts). Es por dispositivo, no por agente:
+// el problema es del teléfono.
+const LLAVE_MODO_CAMARA = "lamision.camara-en-app";
+
+function camaraEnApp(): boolean {
+  try {
+    return localStorage.getItem(LLAVE_MODO_CAMARA) === "1" && soportaCamara();
+  } catch {
+    return false;
+  }
+}
+
+function ponerCamaraEnApp(v: boolean): void {
+  try {
+    localStorage.setItem(LLAVE_MODO_CAMARA, v ? "1" : "0");
+  } catch {
+    /* sin localStorage: se queda con el modo normal */
+  }
+}
+
 // Arriba de esta precisión se avisa, pero NO se bloquea: una lectura de ±300 m
 // sigue diciendo en qué plaza está el agente, y exigir precisión fina dentro de
 // una tienda es exigir lo que el teléfono no puede dar.
@@ -106,6 +142,7 @@ function montarEsqueleto(root: HTMLElement) {
               <a class="bs-quien-btn" id="link-panel" href="/admin/reportes"
                  style="text-decoration:none" hidden>panel</a>
               <button class="bs-quien-btn" id="btn-cambiar-agente">cambiar</button>
+              <span class="bs-ver">${VERSION_APP}</span>
             </p>
           </div>
           <span class="bs-chip is-on" id="chip">
@@ -316,6 +353,21 @@ function renderFormulario() {
       </section>`);
   }
 
+  // Modo de cámara. Solo se ofrece si el navegador puede abrirla dentro de la
+  // app; en el resto no tiene caso mostrar un interruptor que no hace nada.
+  if (fotos.length && soportaCamara()) {
+    partes.push(`
+      <section class="bs-field">
+        <label class="bs-check bs-camara-modo">
+          <input type="checkbox" id="modo-camara" ${camaraEnApp() ? "checked" : ""}>
+          <span>Tomar las fotos dentro de la app</span>
+        </label>
+        <p class="bs-hint">Actívalo si al tomar la foto el teléfono se reinicia o
+        dice que no hay memoria: la app deja de abrir la cámara del sistema, que es
+        lo que tumba la página en teléfonos con poca memoria.</p>
+      </section>`);
+  }
+
   // Ubicación
   partes.push(`
     <section class="bs-field">
@@ -367,6 +419,10 @@ function renderFormulario() {
   $("#notas")!.addEventListener("input", (e) => {
     estado.notas = (e.target as HTMLTextAreaElement).value;
     programarBorrador();
+  });
+
+  $("#modo-camara")?.addEventListener("change", (e) => {
+    ponerCamaraEnApp((e.target as HTMLInputElement).checked);
   });
 
   for (const f of fotos) montarSlot(f.tipo, !!f.ancha, f.etiqueta);
@@ -500,7 +556,11 @@ function renderSlot(tipo: string, ancha: boolean, etiqueta: string) {
       </button>
       ${
         foto && !cargando
-          ? `<span class="bs-badge">${kb(foto.bytesOriginal)} → ${kb(foto.bytes)} · ${foto.ancho}×${foto.alto}</span>
+          ? `<span class="bs-badge">${
+              // Con la cámara en la app no hay archivo original que comparar:
+              // el cuadro ya nace del tamaño que se guarda.
+              foto.bytesOriginal > foto.bytes ? kb(foto.bytesOriginal) + " → " : ""
+            }${kb(foto.bytes)} · ${foto.ancho}×${foto.alto}</span>
              <button type="button" class="bs-retake" id="retake-${esc(tipo)}">Repetir</button>`
           : ""
       }
@@ -514,45 +574,28 @@ function renderSlot(tipo: string, ancha: boolean, etiqueta: string) {
   const input = document.getElementById("input-" + tipo) as HTMLInputElement;
   const btn = document.getElementById("btn-" + tipo)!;
   btn.addEventListener("click", () => {
-    if (!estado.fotos[tipo] && !estado.cargandoFoto[tipo]) input.click();
+    if (estado.fotos[tipo] || estado.cargandoFoto[tipo]) return;
+    if (camaraEnApp()) {
+      void desdeCamaraEnApp(tipo, ancha, etiqueta);
+      return;
+    }
+    // ESTA marca es la que decide el diagnóstico. Si el rastro se queda aquí,
+    // la pestaña murió con la app de cámara al frente y nuestro código nunca
+    // llegó a correr (ver rastro.ts).
+    liberarAntesDeSalir();
+    marcar("camara-abierta", etiqueta);
+    input.click();
   });
   input.addEventListener("change", async () => {
     const file = input.files?.[0];
     input.value = "";
-    if (!file) return;
-    estado.cargandoFoto[tipo] = true;
-    delete estado.erroresFoto[tipo];
-    renderSlot(tipo, ancha, etiqueta);
-    try {
-      const c = await comprimir(file);
-      // Revoca preview anterior si lo hubiera.
-      if (estado.previews[tipo]) URL.revokeObjectURL(estado.previews[tipo]);
-      estado.fotos[tipo] = {
-        id: crypto.randomUUID(),
-        tipo,
-        blob: c.blob,
-        ancho: c.ancho,
-        alto: c.alto,
-        bytes: c.bytes,
-        bytesOriginal: c.bytesOriginal,
-      };
-      estado.previews[tipo] = URL.createObjectURL(c.blob);
-      // La foto ya comprimida se resguarda de inmediato: si el navegador cierra
-      // la pestaña (memoria), no se pierde el trabajo.
-      void guardarBorrador();
-    } catch (e) {
-      // Antes esto se tragaba el error y la foto simplemente no aparecía, sin
-      // explicación. Ahora se dice qué pasó y se puede reintentar.
-      delete estado.fotos[tipo];
-      estado.erroresFoto[tipo] =
-        e instanceof Error && /memor|allocat/i.test(e.message)
-          ? "El teléfono se quedó sin memoria al procesar la foto. Cierra otras apps o pestañas y vuelve a intentar."
-          : "No se pudo procesar la foto. Vuelve a intentar.";
-    } finally {
-      estado.cargandoFoto[tipo] = false;
-      renderSlot(tipo, ancha, etiqueta);
-      actualizarValidacion();
+    if (!file) {
+      // El agente canceló la cámara: el rastro se cierra para no leerse como caída.
+      cerrarRastro();
+      return;
     }
+    marcar("archivo-recibido", `${file.size} bytes · ${file.type || "sin tipo"}`);
+    await procesarFoto(tipo, ancha, etiqueta, () => comprimir(file));
   });
   const retake = document.getElementById("retake-" + tipo);
   retake?.addEventListener("click", () => {
@@ -562,6 +605,80 @@ function renderSlot(tipo: string, ancha: boolean, etiqueta: string) {
     renderSlot(tipo, ancha, etiqueta);
     actualizarValidacion();
   });
+}
+
+// Antes de salir a la app de cámara, soltar lo que se pueda: el navegador queda
+// en segundo plano y Android decide a quién matar por cuánta memoria ocupa. No
+// garantiza nada —el recolector corre cuando quiere— pero baja la huella y no
+// cuesta nada.
+function liberarAntesDeSalir() {
+  for (const url of regUrls) URL.revokeObjectURL(url);
+  regUrls = [];
+}
+
+// Único camino de entrada de una foto, venga de la cámara del sistema o de la
+// cámara dentro de la app. Todo lo de después —resguardo, preview, validación—
+// es idéntico; lo único que cambia es de dónde sale el blob.
+async function procesarFoto(
+  tipo: string,
+  ancha: boolean,
+  etiqueta: string,
+  obtener: () => Promise<Comprimida>
+) {
+  estado.cargandoFoto[tipo] = true;
+  delete estado.erroresFoto[tipo];
+  renderSlot(tipo, ancha, etiqueta);
+  try {
+    const c = await obtener();
+    // Revoca preview anterior si lo hubiera.
+    if (estado.previews[tipo]) URL.revokeObjectURL(estado.previews[tipo]);
+    estado.fotos[tipo] = {
+      id: crypto.randomUUID(),
+      tipo,
+      blob: c.blob,
+      ancho: c.ancho,
+      alto: c.alto,
+      bytes: c.bytes,
+      bytesOriginal: c.bytesOriginal,
+    };
+    estado.previews[tipo] = URL.createObjectURL(c.blob);
+    // La foto ya comprimida se resguarda de inmediato: si el navegador cierra
+    // la pestaña (memoria), no se pierde el trabajo.
+    void guardarBorrador();
+    marcar("foto-guardada", tipo);
+    // Llegó completa: el rastro se cierra para que no se lea como caída.
+    cerrarRastro();
+  } catch (e) {
+    // Antes esto se tragaba el error y la foto simplemente no aparecía, sin
+    // explicación. Ahora se dice qué pasó y se puede reintentar.
+    delete estado.fotos[tipo];
+    marcar("foto-error", e instanceof Error ? e.message : String(e));
+    estado.erroresFoto[tipo] =
+      e instanceof Error && /memor|allocat/i.test(e.message)
+        ? "El teléfono se quedó sin memoria al procesar la foto. Cierra otras apps o pestañas y vuelve a intentar."
+        : "No se pudo procesar la foto. Vuelve a intentar.";
+  } finally {
+    estado.cargandoFoto[tipo] = false;
+    renderSlot(tipo, ancha, etiqueta);
+    actualizarValidacion();
+  }
+}
+
+// Cámara dentro de la app: el navegador nunca pasa a segundo plano, así que no
+// hay nada que Android pueda matar mientras se toma la foto.
+async function desdeCamaraEnApp(tipo: string, ancha: boolean, etiqueta: string) {
+  const r = await tomarFoto(etiqueta);
+  if (!r.ok) {
+    cerrarRastro();
+    if (r.motivo === "cancelada") return;
+    estado.erroresFoto[tipo] = explicarCamara(r.motivo);
+    // Si la cámara en la app no sirve en este teléfono, no dejarlo sin capturar:
+    // se vuelve al modo normal y el agente puede tomar la foto igual.
+    if (r.motivo === "sin_soporte" || r.motivo === "permiso") ponerCamaraEnApp(false);
+    renderSlot(tipo, ancha, etiqueta);
+    return;
+  }
+  await procesarFoto(tipo, ancha, etiqueta, async () => r.foto);
 }
 
 // ---- campos / checklist ----
@@ -1100,10 +1217,58 @@ async function refrescarQueue() {
     pend === 0 ? "Todo sincronizado" : navigator.onLine ? "Subiendo en segundo plano…" : "Guardados en el teléfono";
 }
 
+// ---- caídas del navegador ----
+//
+// Si la app abre y quedó un rastro sin cerrar, la pestaña murió a media captura.
+// Se avisa, se dice qué se sabe y —cuando murió con la cámara del sistema al
+// frente— se cambia solo el modo de cámara, porque ese caso no se arregla de
+// ninguna otra forma desde la página.
+
+function mostrarCaida(c: Caida) {
+  const enLaCamara = murioEnLaCamara(c);
+  if (enLaCamara && soportaCamara()) ponerCamaraEnApp(true);
+
+  const explicacion = enLaCamara
+    ? soportaCamara()
+      ? `El teléfono se quedó sin memoria <strong>mientras estaba abierta la cámara del sistema</strong>,
+         antes de que la app recibiera la foto. Ya se activó <strong>tomar las fotos dentro de la app</strong>
+         en este teléfono: vuelve a intentar la foto y no debería volver a pasar.`
+      : `El teléfono se quedó sin memoria mientras estaba abierta la cámara del sistema.
+         Cierra las demás apps antes de capturar.`
+    : `La app se cerró sola mientras procesaba la foto. Lo capturado hasta ese momento
+       se resguardó y se puede continuar.`;
+
+  $("#banner")!.insertAdjacentHTML(
+    "beforeend",
+    `<div class="bs-recuperar">
+      <p class="bs-recuperar-t">${explicacion}</p>
+      <div class="bs-recuperar-b">
+        <button class="bs-mini" id="btn-ver-caida">Ver detalle</button>
+        <button class="bs-mini" id="btn-ok-caida">Entendido</button>
+      </div>
+      <pre class="bs-rastro" id="rastro-caida" hidden></pre>
+    </div>`
+  );
+
+  $("#btn-ver-caida")!.addEventListener("click", () => {
+    const pre = $("#rastro-caida")!;
+    pre.textContent = listarCaidas().map(comoTexto).join("\n\n———\n\n");
+    pre.hidden = !pre.hidden;
+  });
+  $("#btn-ok-caida")!.addEventListener("click", () => {
+    olvidarCaidas();
+    $("#banner")!.innerHTML = "";
+  });
+}
+
 // ---- init ----
 export async function init() {
   const root = document.getElementById("app");
   if (!root) return;
+
+  // ANTES que nada: leer si la sesión anterior murió a media foto. Tiene que ser
+  // aquí, porque el propio flujo de captura vuelve a escribir el rastro.
+  const caida = revisarCaida();
 
   // 1) Identificar al agente ANTES de montar la app. Si no se puede (sin catálogo,
   //    sin agentes), asegurarIdentidad ya dejó puesta la pantalla que lo explica.
@@ -1132,6 +1297,9 @@ export async function init() {
   await cargarContexto(ctx);
   // Con el formulario ya montado: si quedó una captura a medias, ofrecerla.
   await ofrecerBorrador();
+  // Y si la sesión anterior se murió, explicarlo. Va después del borrador para
+  // que el aviso quede debajo del botón de continuar, no encima.
+  if (caida) mostrarCaida(caida);
   // Suelta lo que ya está confirmado y viejo antes de nada, para que el teléfono
   // no arranque la jornada con la memoria llena.
   await purgarSilencioso();

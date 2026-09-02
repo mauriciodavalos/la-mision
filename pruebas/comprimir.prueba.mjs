@@ -36,9 +36,37 @@ export async function correr({ comprimir }, check) {
       toBlob: (cb) => cb({ size: 198000, type: "image/webp" }),
     };
     globalThis.document = { createElement: () => canvas };
+
+    // El respaldo (navegador sin escalado nativo) decodifica con <img>. Se
+    // simula aquí porque ese camino es justo el que corre en los teléfonos
+    // viejos, o sea los que se quedan sin memoria.
+    urlsVivas = 0;
+    globalThis.URL = {
+      createObjectURL: () => {
+        urlsVivas++;
+        return "blob:sim";
+      },
+      revokeObjectURL: () => urlsVivas--,
+    };
+    globalThis.Image = class {
+      constructor() {
+        this.naturalWidth = 0;
+        this.naturalHeight = 0;
+        this.src = "";
+      }
+      async decode() {
+        [this.naturalWidth, this.naturalHeight] = ultimaFoto.__dim;
+      }
+    };
   }
 
-  const foto = (ancho, alto) => ({ size: 4200000, __dim: [ancho, alto] });
+  let urlsVivas = 0;
+  let ultimaFoto = { __dim: [0, 0] };
+
+  const foto = (ancho, alto) => {
+    ultimaFoto = { size: 4200000, __dim: [ancho, alto] };
+    return ultimaFoto;
+  };
 
   // Foto vertical de 12 MP: la típica de un teléfono.
   montar();
@@ -71,5 +99,13 @@ export async function correr({ comprimir }, check) {
   check(
     r.ancho === 1600 && r.alto === 1200,
     "sin escalado nativo cae al respaldo y aun así entrega 1600×1200"
+  );
+  check(
+    cerrados === 0,
+    "el respaldo ya NO usa createImageBitmap sin escalar: esa era la línea que reventaba"
+  );
+  check(
+    urlsVivas === 0,
+    "el respaldo revoca su object URL: dejarla viva mantiene la foto original en memoria"
   );
 }

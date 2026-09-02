@@ -48,6 +48,7 @@ export function check(ok, texto) {
 const suites = [
   ["gps — ubicación obligatoria", "./gps.prueba.mjs", "src/lib/gps.ts", "gps.mjs"],
   ["comprimir — memoria del teléfono", "./comprimir.prueba.mjs", "src/lib/comprimir.ts", "comprimir.mjs"],
+  ["rastro — de qué se murió la pestaña", "./rastro.prueba.mjs", "src/lib/rastro.ts", "rastro.mjs"],
 ];
 
 await mkdir(salida, { recursive: true });

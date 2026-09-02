@@ -541,6 +541,116 @@ visitas ya guardadas. Volverlas `not null` es tema de fase 2.
 
 ---
 
+## Sesión del 1 de septiembre — el crash de memoria NO era la compresión
+
+El arreglo del 31 de agosto no sirvió: el teléfono de Romina seguía reiniciándose
+al tomar la foto, con el mismo mensaje.
+
+### Lo que se estaba pasando por alto
+
+El mensaje dice *"Memoria insuficiente para completar la operación **anterior**"*.
+Esa es la pantalla de Chrome en Android cuando el sistema **mata el proceso de la
+pestaña** — no un error que lance nuestro código.
+
+Y el momento en que ocurre lo explica: `<input type="file" capture>` abre la app
+de cámara del sistema, así que **el navegador se va a segundo plano**. La app de
+cámara de un teléfono de 12 MP se lleva cientos de MB para su propio pipeline, y
+Android libera memoria matando lo que está atrás: la pestaña. El agente da
+"aceptar", regresa, y el navegador ya estaba muerto.
+
+**Si es eso, el crash pasa antes de que corra una sola línea nuestra.** Optimizar
+`comprimir.ts` no podía arreglarlo: se optimizó el paso correcto, pero el problema
+está un paso antes. Quedaban dos hipótesis más —el teléfono nunca recibió el
+bundle nuevo, o el navegador cae al respaldo de compresión— y no había forma de
+distinguirlas a ciegas.
+
+### Rastro que sobrevive a la muerte de la pestaña — `src/lib/rastro.ts`
+
+Cuando el navegador mata la pestaña se lleva la consola, los logs y todo el estado
+en memoria. Por eso cada paso del flujo de foto se apunta ahora en
+**localStorage**, que es **síncrono**: cuando `marcar()` regresa, el dato ya está
+en disco. IndexedDB no sirve para esto — sus escrituras son asíncronas y una
+pestaña que muere en el siguiente instante se las lleva sin guardar.
+
+Al reabrir, la app lee el rastro y **el último paso alcanzado dice cuál hipótesis
+era la buena**:
+
+| Último paso | Qué significa | Qué lo arregla |
+|---|---|---|
+| `camara-abierta` | Murió con la cámara del sistema al frente | Cámara dentro de la app |
+| `decodificando` / `codificando` | Sí es la compresión (el detalle dice si usó el respaldo) | Seguir en `comprimir.ts` |
+| sin rastro roto | La pestaña no murió; es otra cosa | Volver a empezar |
+
+El aviso se muestra en pantalla con un botón **"Ver detalle"** que enseña el rastro
+completo, incluyendo modelo, RAM y **versión de la app**. Nada se manda a ningún
+lado: se lee en el teléfono.
+
+### Cámara dentro de la app — `src/lib/camara.ts`
+
+Para la hipótesis de la cámara del sistema no hay arreglo desde la página: hay que
+**dejar de salir de la app**. Se abre la cámara con `getUserMedia` sobre un
+`<video>` a pantalla completa y al disparar se copia el cuadro a un canvas.
+
+- El navegador **nunca pasa a segundo plano**: no hay nada que Android pueda matar.
+- Se pide un cuadro de ~1920 px en vez de una foto de 12 MP: el bitmap que toca la
+  memoria es de ~8 MB, no ~48 MB, y **ya sale del tamaño que guardamos igual**
+  (1600 px de lado mayor).
+- Nunca hay un archivo original vivo en RAM mientras se comprime.
+
+Se pierde detalle contra la foto de 12 MP — que de todos modos tirábamos al
+escalar a 1600. Para un anaquel y un acercamiento alcanza, y es la diferencia entre
+capturar y no poder capturar.
+
+**Se activa sola** cuando el rastro dice que la caída fue con la cámara del sistema
+abierta: el problema es del teléfono, así que la preferencia se guarda por
+dispositivo (`localStorage`), no por agente. También hay un interruptor a la vista
+—*"Tomar las fotos dentro de la app"*— por si hay que ponerlo a mano. Si la cámara
+en la app falla por permiso o falta de soporte, se vuelve sola al modo normal: el
+agente nunca se queda sin poder capturar.
+
+**No se hizo el modo por omisión.** Tres de cuatro teléfonos funcionan bien con la
+cámara del sistema y esa da mejor foto. Cambiarle el flujo a todos para arreglar
+uno sería empeorar lo que ya sirve.
+
+### El respaldo de la compresión era el bug
+
+`decodificarEscalado()` caía a `createImageBitmap(file)` a secas cuando el
+navegador no aceptaba las opciones de escalado — o sea, **exactamente la línea que
+reventaba la memoria**. El respaldo del arreglo era el bug. Ahora usa `<img>` +
+`decode()`, que en Android sí aplica decodificado a escala reducida para JPEG
+grandes y no deja un `ImageBitmap` vivo junto al canvas, y revoca su object URL de
+inmediato.
+
+### Versión visible
+
+`VERSION_APP` (`v3`) se muestra junto al nombre del agente y va en cada reporte de
+caída. Es la única forma de saber a distancia si un teléfono trae el código nuevo o
+uno cacheado por el service worker — la hipótesis más barata de descartar y la que
+más tiempo hace perder cuando no se descarta.
+
+### Costo
+
+El bundle de captura pasa de 30.9 KB a 38.1 KB. Cero red, cero storage: el rastro
+vive en el teléfono. La foto de la cámara en la app pesa lo mismo (~200 KB WebP).
+
+### Archivos
+
+`src/lib/rastro.ts` (nuevo), `src/lib/camara.ts` (nuevo), `src/lib/comprimir.ts`,
+`src/lib/captura-ui.ts`, `src/styles/captura.css`, `public/sw.js` (v3),
+`pruebas/rastro.prueba.mjs` (nuevo), `pruebas/correr.mjs`,
+`pruebas/comprimir.prueba.mjs`. Sin migraciones, sin dependencias nuevas.
+`npm run prueba`: 29 comprobaciones.
+
+### Lo que falta saber
+
+Todo esto es instrumentación más una apuesta. **La respuesta la da el teléfono de
+Romina:** que abra la app (debe decir `v3`), intente la foto, y si se vuelve a
+caer, al reabrir lea el aviso y toque **"Ver detalle"**. Ese texto dice en qué paso
+murió, y con eso se sabe si la cámara en la app ya lo resolvió o si hay que buscar
+en otro lado.
+
+---
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo
