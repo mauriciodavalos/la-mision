@@ -41,13 +41,18 @@ export async function correr({ comprimir }, check) {
     // simula aquí porque ese camino es justo el que corre en los teléfonos
     // viejos, o sea los que se quedan sin memoria.
     urlsVivas = 0;
-    globalThis.URL = {
-      createObjectURL: () => {
-        urlsVivas++;
-        return "blob:sim";
-      },
-      revokeObjectURL: () => urlsVivas--,
+    // Se HEREDA de la URL real en vez de reemplazarla por un objeto suelto: los
+    // globales que pone una suite se los queda el proceso, y borrar el
+    // constructor dejaba sin `new URL(...)` a todo lo que corriera después.
+    // Salió a la luz al agregar la suite `corregir`, cuyo módulo construye el
+    // cliente de Supabase y valida la URL al importarse.
+    class URLSimulada extends globalThis.URL {}
+    URLSimulada.createObjectURL = () => {
+      urlsVivas++;
+      return "blob:sim";
     };
+    URLSimulada.revokeObjectURL = () => urlsVivas--;
+    globalThis.URL = URLSimulada;
     globalThis.Image = class {
       constructor() {
         this.naturalWidth = 0;

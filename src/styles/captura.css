@@ -395,3 +395,32 @@
 }
 
 @media (prefers-reduced-motion: reduce) { .bs-dot.is-live, .bs-spin { animation: none; } }
+
+/* ---- corregir la tienda de una visita (admin-reportes-ui.ts) ----
+   El listado de sucursales NO hereda el look de .bs-mini (mono, 10px, MAYÚSCULAS):
+   ahí se leen nombres de tienda parecidos entre sí —"INSURGENTES" contra "CENTRO
+   INSURGENTES"— y en versalitas apretadas se vuelven a confundir, que es justo el
+   error que esta pantalla existe para corregir. */
+.bs-corr:empty { display: none; }
+.bs-corr-in {
+  margin-top: 10px; padding: 14px; border: 1px solid var(--line);
+  border-radius: 3px; background: var(--paper);
+}
+.bs-corr-lista { display: flex; flex-direction: column; gap: 4px; }
+.bs-corr-op {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  width: 100%; text-align: left; text-transform: none;
+  font-family: 'Archivo', system-ui, sans-serif; font-size: 13.5px;
+  letter-spacing: 0; padding: 9px 11px; min-height: 40px;
+}
+.bs-corr-op strong { font-family: 'Roboto Mono', monospace; font-size: 12px; }
+.bs-corr-cad { font-size: 11px; color: var(--ink-soft); margin-left: auto; }
+.bs-corr-op:hover .bs-corr-cad { color: var(--steel); }
+
+.bs-corr-conf { border-top: 1px solid var(--line); padding-top: 12px; }
+.bs-corr-mov { display: flex; flex-direction: column; gap: 2px; font-size: 14px; margin: 0 0 12px; }
+.bs-corr-fl { color: var(--ink-soft); font-size: 12px; line-height: 1; }
+
+/* Marca en el renglón de una visita ya corregida: en un producto de auditoría no
+   puede parecer que el dato siempre estuvo así. */
+.bs-corregida { color: var(--alert); }

@@ -32,6 +32,17 @@ async function bundle(entrada, nombre) {
     format: "esm",
     outfile: archivo,
     logLevel: "error",
+    // `src/db/supabase.ts` lee import.meta.env al importarse y truena si falta.
+    // Fuera de Astro eso no existe, así que se le dan credenciales de mentira:
+    // alcanza para que el módulo cargue y se puedan probar sus funciones puras.
+    // NINGUNA prueba llama a la red: el proyecto de esta URL no existe, así que
+    // cualquier intento fallaría, que es exactamente lo que debe pasar.
+    define: {
+      "import.meta.env": JSON.stringify({
+        PUBLIC_SUPABASE_URL: "https://pruebas.supabase.co",
+        PUBLIC_SUPABASE_ANON_KEY: "sb_publishable_de_mentira",
+      }),
+    },
   });
   return import(pathToFileURL(archivo).href);
 }
@@ -50,6 +61,7 @@ const suites = [
   ["comprimir — memoria del teléfono", "./comprimir.prueba.mjs", "src/lib/comprimir.ts", "comprimir.mjs"],
   ["rastro — de qué se murió la pestaña", "./rastro.prueba.mjs", "src/lib/rastro.ts", "rastro.mjs"],
   ["avisos — cuándo interrumpir al agente", "./avisos.prueba.mjs", "src/lib/avisos.ts", "avisos.mjs"],
+  ["corregir — arreglar un dato sin romper otro", "./corregir.prueba.mjs", "src/lib/corregir-visita.ts", "corregir.mjs"],
   // Sin módulo que empaquetar: esta suite revisa el CSS como texto.
   ["estilos — lo que se cuelga de <body>", "./estilos.prueba.mjs", null, null],
 ];

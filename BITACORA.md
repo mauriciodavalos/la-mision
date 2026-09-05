@@ -746,6 +746,94 @@ supervisor, no sólo en el teléfono del agente.
 
 ---
 
+## Sesión del 4 de septiembre — la primera semana en campo, y corregir sin mentir
+
+### Lo que dijo la base
+Romina y Carmen capturan sin problemas: **el crash de memoria está cerrado**. La
+cámara dentro de la app (`getUserMedia` en vez de `<input capture>`, v4) era el
+diagnóstico correcto.
+
+Auditoría completa contra base **y bucket**, una foto a la vez:
+
+| | |
+|---|---|
+| Visitas | **26** (31 ago: 1 · 2 sep: 10 · 4 sep: 15) |
+| Sin GPS | **0** |
+| Con menos de 2 fotos | **0** |
+| Faltantes en Storage | **0** de 52 |
+| Tamaño distinto entre fila y objeto | **0** |
+| Storage | 9.6 MB · 190 KB por foto |
+
+**La cola offline se probó sola, en campo:** la visita de Lalo en BA Bolívar se
+capturó 12:19 y subió 13:24 — 65 minutos, íntegra. Las otras 25 subieron en menos
+de un minuto. Hasta hoy eso era teoría.
+
+**El GPS es bueno y no verifica nada.** Lecturas repetidas en la misma tienda
+coinciden dentro de ±0 a ±14 m (8 tiendas con 2+ visitas), o sea que el
+seguimiento continuo funciona. Pero **las 264 tiendas del catálogo tienen
+`latitud`/`longitud` en NULL** —los CSV de origen no las traen— así que no se puede
+contestar "¿estuvo de verdad en la tienda?", que es lo único que justifica
+capturar la coordenada. `importar-tiendas.ts` ya reconoce las columnas: falta el
+dato, no el código.
+
+### La equivocación que motivó el trabajo
+Carmen capturó una visita en **1075 CENTRO INSURGENTES** cuando era **1006
+INSURGENTES** —dos sucursales cuyos puntos observados quedan a **8 metros**— y lo
+reportó. Corregirla exigió entrar a la base a mano. Con 264 tiendas eso no es un
+proceso: es una llamada de auxilio cada vez.
+
+### Corregir la tienda desde el panel (`corregir-visita.ts` + panel)
+Botón **"Corregir tienda"** en cada renglón: busca la sucursal por clave o nombre
+sobre el catálogo ya cacheado, muestra un paso de confirmación con las dos
+sucursales escritas completas, y escribe. Tres reglas que explican el diseño:
+
+1. **Nunca se reescribe en silencio.** Cada corrección deja su renglón en
+   `visitas.datos._correcciones` — campo, de qué a qué (con UUID **y** clave de
+   sucursal), quién y cuándo. Sin migración: `datos` ya es jsonb. El renglón se
+   marca en rojo en el panel; en un producto de auditoría un dato corregido no
+   puede parecer que siempre estuvo así.
+2. **La cadena viaja con la tienda.** `visitas` guarda `cadena_id` aparte de
+   `tienda_id` y **ninguna llave foránea obliga a que coincidan** (0001 ata cada
+   una al cliente, no entre sí). Mover solo la tienda dejaría la visita diciendo
+   que ocurrió en una cadena donde esa sucursal no existe: un error silencioso que
+   no truena nada y arruina el reporte por cadena. `cadena_id` se toma **siempre**
+   de la tienda destino.
+3. **Las fotos no se mueven.** `storage_path` conserva el nombre de la tienda
+   original. Renombrar la carpeta sería cosmético y mover evidencia en producción
+   contradice "nunca perder evidencia"; el panel resuelve por `storage_path`, así
+   que no se rompe nada, y el rastro explica la discrepancia.
+
+Además: candado optimista (el UPDATE lleva el `tienda_id` esperado en el WHERE, así
+que no pisa un cambio ajeno), y el aislamiento multi-cliente **se verifica en
+código**, no se confía en que la búsqueda ya filtró — en fase 1 no hay RLS que lo
+detenga después.
+
+### Un error que estaba dormido en las pruebas
+`comprimir.prueba.mjs` hacía `globalThis.URL = { createObjectURL, revokeObjectURL }`,
+**borrando el constructor real de URL** para todas las suites posteriores. Nadie lo
+notó porque ninguna lo usaba. Al agregar `corregir` —cuyo módulo construye el
+cliente de Supabase, que valida la URL al importarse— reventó. Ahora el simulacro
+**hereda** de la URL real. Los globales que pone una suite se los queda el proceso.
+
+### Cómo se verificó (la lección de las dos regresiones de septiembre)
+`astro check` limpio y **65 comprobaciones** en verde no alcanzan: las dos veces que
+se rompió algo en producción, las pruebas pasaban. Esta vez se cargó la página
+compilada de verdad y se condujo por CDP (WebSocket nativo de Node, sin
+dependencias nuevas — ver el patrón en la sesión): sembrar la sesión de admin,
+consultar, abrir el corrector, buscar, y **detenerse en «Confirmar cambio» sin
+tocarlo**. Resultado: 12 visitas, 12 botones, búsqueda de "insurg" → 3 opciones sin
+ofrecer la que la visita ya tiene, cero errores de JS y sin desborde horizontal
+(749 de 764 px). Más render a 390 px reales dentro de un iframe, porque **Chrome
+headless ignora `--window-size` por debajo de ~500 px** y sin el iframe el
+resultado engaña.
+
+### Dos cosas para la operación, no para el código
+- **Posible captura repetida:** 1011 Plaza Universidad / Anframa, 4 sep, con **83
+  segundos** entre las dos (la primera con nota, la segunda vacía). Si Carmen la
+  repitió porque no vio la confirmación, el popup verde no le está quedando claro.
+- Tras corregir la de Insurgentes quedan **dos visitas de Anframa en 1006** ese día,
+  con notas distintas. Puede ser legítimo o puede sobrar una.
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo

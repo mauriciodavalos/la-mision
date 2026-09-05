@@ -27,13 +27,20 @@
 // día hace falta el segundo exacto, el gancho es `supabase.channel(...)` sobre
 // `visitas`.
 //
+// CORREGIR LA TIENDA DE UNA VISITA: el panel no es solo de lectura. Una agente
+// puede elegir la sucursal equivocada al capturar —pasó el 4 sep 2026, con dos
+// Sanborns de nombre parecido a 8 metros— y hasta entonces la única forma de
+// arreglarlo era entrar a la base a mano. El botón "Corregir tienda" de cada
+// renglón lo resuelve desde aquí, dejando rastro. Las reglas del cambio viven
+// en corregir-visita.ts; esta pantalla solo lo maneja.
+//
 // ALCANCE DE LA PUERTA: entra quien se identifique como agente con `es_admin`
 // (mismo PIN de fase 1). Evita que un agente entre al panel por curiosidad o por
 // equivocación; NO es una cerradura — con la RLS apagada, quien tenga la key
 // publishable puede leer la base con o sin esta pantalla. La cerradura llega en
 // fase 2 (Supabase Auth + RLS, ver 9999_rls_fase2.sql.txt).
 
-import { listarAgentesDeCliente, listarClientes } from "./catalogo";
+import { buscarTiendas, listarAgentesDeCliente, listarClientes } from "./catalogo";
 import { asegurarIdentidad } from "./identidad-ui";
 import { olvidarIdentidad } from "./identidad";
 import {
@@ -43,7 +50,12 @@ import {
   listarVisitas,
   type VisitaHistorial,
 } from "./historial";
-import type { Agente, Cliente } from "./tipos";
+import {
+  corregirTienda,
+  historialDeCorrecciones,
+  type VisitaCorregible,
+} from "./corregir-visita";
+import type { Agente, Cliente, Tienda } from "./tipos";
 
 const LLAVE_FILTROS = "lamision.panel.filtros";
 const AUTO_MS = 60_000;
@@ -239,7 +251,9 @@ function montar(root: HTMLElement) {
           <button class="bs-toggle" id="btn-actualizar">Actualizar</button>
         </div>
       </div>
-    </div>`;
+    </div>
+
+    <div class="bs-toast" id="panel-toast" role="status" aria-live="polite"></div>`;
 
   $("#f-cliente")!.addEventListener("change", () => void alCambiarCliente());
   $("#btn-consultar")!.addEventListener("click", () => void consultar());
@@ -425,6 +439,18 @@ function renderResultados() {
       ]
         .filter(Boolean)
         .join(" · ");
+      // Una visita corregida lo dice en su renglón: en un producto de auditoría
+      // no puede parecer que siempre estuvo así.
+      const corr = historialDeCorrecciones(v.datos);
+      const marca = corr.length
+        ? `<div class="bs-row-meta bs-corregida">tienda corregida por ${esc(
+            corr[corr.length - 1].por
+          )} · ${fmtFechaHora(corr[corr.length - 1].en)}${
+            corr[corr.length - 1].de_clave
+              ? ` · antes ${esc(corr[corr.length - 1].de_clave!)}`
+              : ""
+          }</div>`
+        : "";
       return `
         <article class="bs-row" style="grid-template-columns:1fr">
           <div>
@@ -437,10 +463,15 @@ function renderResultados() {
                 ? `<div class="bs-row-meta" style="color:#14181B">“${esc(v.notas)}”</div>`
                 : ""
             }
-            <button class="bs-mini" data-visita="${esc(
-              v.id
-            )}" style="margin-top:8px">Ver fotos</button>
+            ${marca}
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+              <button class="bs-mini" data-visita="${esc(v.id)}">Ver fotos</button>
+              <button class="bs-mini" data-corregir="${esc(
+                v.id
+              )}">Corregir tienda</button>
+            </div>
             <div class="bs-thumbs" id="fotos-${esc(v.id)}" style="margin-top:8px"></div>
+            <div class="bs-corr" id="corr-${esc(v.id)}"></div>
           </div>
         </article>`;
     })
@@ -479,6 +510,9 @@ function renderResultados() {
   cont.querySelectorAll<HTMLButtonElement>("[data-visita]").forEach((btn) => {
     btn.addEventListener("click", () => void verFotos(btn));
   });
+  cont.querySelectorAll<HTMLButtonElement>("[data-corregir]").forEach((btn) => {
+    btn.addEventListener("click", () => abrirCorrector(btn));
+  });
   actualizarBarra();
 }
 
@@ -503,6 +537,184 @@ function actualizarBarra() {
   sub.textContent =
     (estado.ultima ? `Actualizado ${fmtHora(estado.ultima)}` : "") +
     (auto ? " · auto cada minuto" : "");
+}
+
+// ---- corregir la tienda de una visita ----
+//
+// Dos toques, nunca uno: se busca y se elige, y recién entonces aparece el
+// "Confirmar" con las dos sucursales escritas completas. Un solo toque sobre una
+// lista de nombres parecidos es exactamente el error que estamos corrigiendo.
+
+function comoCorregible(v: VisitaHistorial): VisitaCorregible {
+  return {
+    id: v.id,
+    cliente_id: v.cliente_id,
+    tienda_id: v.tienda_id,
+    cadena_id: v.cadena_id,
+    tienda_clave: v.tienda_clave,
+    tienda_nombre: v.tienda_nombre,
+    datos: v.datos,
+  };
+}
+
+function abrirCorrector(btn: HTMLButtonElement) {
+  const id = btn.dataset.corregir!;
+  const caja = document.getElementById("corr-" + id);
+  const v = estado.visitas.find((x) => x.id === id);
+  if (!caja || !v) return;
+
+  if (caja.childElementCount > 0) {
+    caja.innerHTML = "";
+    btn.textContent = "Corregir tienda";
+    return;
+  }
+  btn.textContent = "Cerrar";
+  caja.innerHTML = `
+    <div class="bs-corr-in">
+      <p class="bs-hint" style="margin-left:0">
+        Ahora está en <strong>${esc(v.tienda_clave)} ${esc(
+    v.tienda_nombre ?? ""
+  )}</strong>. Busca la sucursal correcta por clave o por nombre.
+      </p>
+      <label class="bs-campo">
+        <span class="bs-campo-l">Tienda correcta</span>
+        <input class="bs-input" id="q-${esc(id)}" autocomplete="off"
+               placeholder="clave o nombre">
+      </label>
+      <label class="bs-campo">
+        <span class="bs-campo-l">Por qué (opcional)</span>
+        <input class="bs-input" id="m-${esc(id)}" autocomplete="off"
+               placeholder="p. ej. la agente lo reportó">
+      </label>
+      <div class="bs-corr-lista" id="l-${esc(id)}"></div>
+      <p class="bs-note">Las fotos se quedan en la carpeta original del bucket:
+      mover evidencia en producción por un tema de nombre no vale el riesgo. La
+      corrección queda registrada con tu nombre y la fecha.</p>
+    </div>`;
+
+  const q = document.getElementById("q-" + id) as HTMLInputElement;
+  q.addEventListener("input", () => void buscar(v, btn));
+  q.focus();
+  void buscar(v, btn);
+}
+
+async function buscar(v: VisitaHistorial, btn: HTMLButtonElement) {
+  const lista = document.getElementById("l-" + v.id);
+  const q = document.getElementById("q-" + v.id) as HTMLInputElement | null;
+  if (!lista || !q) return;
+
+  let tiendas: Tienda[];
+  try {
+    // El catálogo del cliente se descarga una vez y se cachea (ver catalogo.ts),
+    // así que a partir de la segunda letra la búsqueda es local e instantánea.
+    tiendas = await buscarTiendas(v.cliente_id, q.value, 12, estado.admin ?? undefined);
+  } catch {
+    lista.innerHTML = `<p class="bs-hint" style="margin-left:0;color:#C4462B">
+      No se pudo leer el catálogo de tiendas. Revisa la señal.</p>`;
+    return;
+  }
+
+  const otras = tiendas.filter((t) => t.id !== v.tienda_id);
+  if (otras.length === 0) {
+    lista.innerHTML = `<p class="bs-hint" style="margin-left:0">Ninguna otra sucursal
+      coincide con esa búsqueda.</p>`;
+    return;
+  }
+
+  lista.innerHTML = otras
+    .map(
+      (t) => `<button class="bs-mini bs-corr-op" data-t="${esc(t.id)}">
+        <strong>${esc(t.clave_sucursal)}</strong> ${esc(t.nombre ?? "")}
+        ${t.cadena_nombre ? `<span class="bs-corr-cad">${esc(t.cadena_nombre)}</span>` : ""}
+      </button>`
+    )
+    .join("");
+
+  lista.querySelectorAll<HTMLButtonElement>("[data-t]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const destino = otras.find((t) => t.id === b.dataset.t);
+      if (destino) confirmar(v, destino, btn);
+    });
+  });
+}
+
+function confirmar(v: VisitaHistorial, destino: Tienda, btn: HTMLButtonElement) {
+  const lista = document.getElementById("l-" + v.id);
+  if (!lista) return;
+
+  lista.innerHTML = `
+    <div class="bs-corr-conf">
+      <p class="bs-corr-mov">
+        <span>${esc(v.tienda_clave)} ${esc(v.tienda_nombre ?? "")}</span>
+        <span class="bs-corr-fl">↓</span>
+        <span><strong>${esc(destino.clave_sucursal)} ${esc(
+    destino.nombre ?? ""
+  )}</strong></span>
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="bs-mini is-principal" id="ok-${esc(v.id)}">Confirmar cambio</button>
+        <button class="bs-mini" id="no-${esc(v.id)}">Elegir otra</button>
+      </div>
+    </div>`;
+
+  document
+    .getElementById("no-" + v.id)!
+    .addEventListener("click", () => void buscar(v, btn));
+  document
+    .getElementById("ok-" + v.id)!
+    .addEventListener("click", (e) =>
+      void aplicar(v, destino, e.currentTarget as HTMLButtonElement)
+    );
+}
+
+async function aplicar(v: VisitaHistorial, destino: Tienda, ok: HTMLButtonElement) {
+  const motivo = (document.getElementById("m-" + v.id) as HTMLInputElement | null)?.value;
+  ok.disabled = true;
+  ok.textContent = "Guardando…";
+
+  const r = await corregirTienda(
+    comoCorregible(v),
+    destino,
+    estado.admin?.nombre ?? "admin",
+    motivo
+  );
+
+  if (!r.ok) {
+    ok.disabled = false;
+    ok.textContent = "Confirmar cambio";
+    const lista = document.getElementById("l-" + v.id);
+    if (lista) {
+      const p = document.createElement("p");
+      p.className = "bs-hint";
+      p.style.cssText = "margin-left:0;color:#C4462B";
+      p.textContent = r.motivo; // viene del servidor: textContent, no innerHTML
+      lista.appendChild(p);
+    }
+    return;
+  }
+
+  // Se actualiza en memoria en vez de volver a consultar: la fila ya está y una
+  // consulta nueva gastaría cuota para traer lo que acabamos de escribir.
+  v.tienda_id = destino.id;
+  v.cadena_id = destino.cadena_id;
+  v.tienda_clave = destino.clave_sucursal;
+  v.tienda_nombre = destino.nombre;
+  if (destino.cadena_nombre) v.cadena_nombre = destino.cadena_nombre;
+  v.datos = {
+    ...v.datos,
+    _correcciones: [...historialDeCorrecciones(v.datos), r.correccion],
+  };
+
+  renderResultados(); // repinta con la marca de "tienda corregida"
+  avisar(`Movida a ${destino.clave_sucursal} ${destino.nombre ?? ""}`.trim());
+}
+
+function avisar(texto: string) {
+  const t = document.getElementById("panel-toast");
+  if (!t) return;
+  t.textContent = texto;
+  t.classList.add("is-on");
+  window.setTimeout(() => t.classList.remove("is-on"), 3200);
 }
 
 // ---- fotos de una visita, bajo demanda ----

@@ -26,6 +26,13 @@ export interface VisitaHistorial {
   longitud: number | null;
   notas: string | null;
   fotos: number;
+  // Los ids y `datos` viajan para poder CORREGIR la tienda desde el panel sin
+  // una segunda consulta (ver corregir-visita.ts). Son unos pocos bytes por
+  // fila y ya se están leyendo para armar el join.
+  cliente_id: string;
+  tienda_id: string;
+  cadena_id: string;
+  datos: Record<string, unknown>;
 }
 
 export interface FotoHistorial {
@@ -57,6 +64,7 @@ export async function listarVisitas(
     .from("visitas")
     .select(
       "id, capturada_en, latitud, longitud, notas, " +
+        "cliente_id, tienda_id, cadena_id, datos, " +
         "tiendas(clave_sucursal, nombre), cadenas(nombre), marcas(nombre), " +
         "agentes(nombre), evidencias(id)"
     )
@@ -83,6 +91,10 @@ export async function listarVisitas(
     longitud: r.longitud,
     notas: r.notas,
     fotos: Array.isArray(r.evidencias) ? r.evidencias.length : 0,
+    cliente_id: r.cliente_id,
+    tienda_id: r.tienda_id,
+    cadena_id: r.cadena_id,
+    datos: (r.datos ?? {}) as Record<string, unknown>,
   }));
 }
 
