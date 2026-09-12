@@ -15,6 +15,14 @@
 //
 // Costo: baja el egress. El shell deja de descargarse en cada visita.
 
+// v6 (12 sep 2026): favicon.svg y favicon.ico propios. El .ico que traía el
+// repo era el de Astro —un PNG de 32 px con la extensión cambiada— y el .svg,
+// un calco en negro plano. Los PNG de 32 y 48 cambiaron de contenido con el
+// mismo nombre, que es el caso clásico de cache viejo.
+// v5 (12 sep 2026): ícono propio de la app (manifest con PNG de 192/512 y
+// maskable, apple-touch-icon). Sin subir la versión, un teléfono con la app ya
+// instalada seguiría sirviendo el manifest viejo desde el cache y conservaría el
+// ícono anterior.
 // v4 (1 sep 2026): confirmación de subida al servidor, popup de ubicación con
 // instrucciones por plataforma, almacenamiento persistente y aviso al cerrar con
 // registros pendientes.
@@ -24,11 +32,7 @@
 // v2 (31 ago 2026): ubicación obligatoria, compresión que no revienta la memoria
 // del teléfono y borrador de la captura. Subir la versión es lo que hace que un
 // teléfono con la app instalada tome el bundle nuevo en vez del cacheado.
-// v5 (12 sep 2026): ícono propio de la app (manifest con PNG de 192/512 y
-// maskable, apple-touch-icon). Sin subir la versión, un teléfono con la app ya
-// instalada seguiría sirviendo el manifest viejo desde el cache y conservaría el
-// ícono anterior.
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE = `lamision-shell-${VERSION}`;
 
 // Lo mínimo para arrancar. Los assets con hash (/_astro/*) se cachean solos al
