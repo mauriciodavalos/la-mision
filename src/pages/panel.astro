@@ -1,0 +1,40 @@
+---
+// Tablero por empresa. La dirección real es /<slug>/panel — por ejemplo
+// /bikes-shot/panel — y Netlify reescribe cualquiera de esas a esta página
+// (ver netlify.toml). El slug se lee del path en el navegador.
+//
+// Por qué un rewrite y no una ruta dinámica de Astro: con `getStaticPaths` habría
+// que consultar la lista de clientes EN EL BUILD, y entonces dar de alta una
+// empresa exigiría volver a desplegar. Con el rewrite, un cliente nuevo en la
+// base funciona al instante.
+//
+// noindex: no tiene nada que hacer en un buscador.
+import "../styles/captura.css";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#123B3A" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <title>Tablero — La Misión</title>
+  </head>
+  <body>
+    <div id="app" class="bs-root">
+      <header class="bs-head">
+        <div class="bs-shell" style="padding-bottom:18px">
+          <p class="bs-brand">La Misión · Tablero</p>
+          <h1 class="bs-title">Cargando…</h1>
+        </div>
+      </header>
+    </div>
+
+    <script>
+      import { init } from "../lib/panel-cliente-ui";
+      void init();
+    </script>
+  </body>
+</html>

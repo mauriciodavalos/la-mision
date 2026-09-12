@@ -63,6 +63,7 @@ const suites = [
   ["avisos — cuándo interrumpir al agente", "./avisos.prueba.mjs", "src/lib/avisos.ts", "avisos.mjs"],
   ["corregir — arreglar un dato sin romper otro", "./corregir.prueba.mjs", "src/lib/corregir-visita.ts", "corregir.mjs"],
   ["validación — un semáforo que no miente", "./validacion.prueba.mjs", "src/lib/validacion.ts", "validacion.mjs"],
+  ["ruta — de qué empresa son los datos", "./ruta.prueba.mjs", "src/lib/ruta.ts", "ruta.mjs"],
   // Sin módulo que empaquetar: esta suite revisa el CSS como texto.
   ["estilos — lo que se cuelga de <body>", "./estilos.prueba.mjs", null, null],
 ];

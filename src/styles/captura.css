@@ -424,3 +424,37 @@
 /* Marca en el renglón de una visita ya corregida: en un producto de auditoría no
    puede parecer que el dato siempre estuvo así. */
 .bs-corregida { color: var(--alert); }
+
+/* ---- tablero por empresa (panel-cliente-ui.ts) ---- */
+
+/* Las señales de validación. Tres estados y TRES colores distintos: "sin
+   referencia" no se pinta como "ok" ni como alerta, porque no es ninguna de las
+   dos — es la ausencia de información, y confundirla con un visto bueno es el
+   error que este tablero existe para no cometer. */
+.bs-senales { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.bs-senal {
+  font-family: 'Roboto Mono', monospace; font-size: 10.5px; line-height: 1.35;
+  padding: 4px 8px; border-radius: 2px; border: 1px solid transparent;
+}
+.bs-senal.is-ok { background: rgba(31,122,84,.10); color: #17603F; border-color: rgba(31,122,84,.25); }
+.bs-senal.is-revisar { background: rgba(196,70,43,.10); color: #A8381F; border-color: rgba(196,70,43,.30); }
+.bs-senal.is-sin-referencia { background: var(--steel); color: var(--ink-soft); border-color: var(--line); }
+
+/* Una visita con observaciones se distingue de un vistazo, sin tener que leer
+   los chips uno por uno. */
+.bs-row.is-observada { border-left: 3px solid var(--alert); padding-left: 12px; }
+.bs-obs {
+  font-family: 'Roboto Mono', monospace; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--alert); margin-left: 8px; white-space: nowrap;
+}
+.bs-stat-n.is-alerta { color: var(--alert); }
+
+/* Las sucursales sin visitar pueden ser más de cien: se envuelven en vez de
+   hacer una columna interminable. */
+.bs-faltantes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.bs-faltantes:empty { display: none; }
+.bs-falta {
+  font-size: 11.5px; padding: 4px 8px; border: 1px solid var(--line);
+  border-radius: 2px; background: var(--paper); color: var(--ink-soft);
+}
+.bs-falta strong { font-family: 'Roboto Mono', monospace; color: var(--ink); }

@@ -96,6 +96,15 @@ export function metrosEntre(
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
+/** Un lapso en palabras: "40 min", "3 h", "2 días". */
+export function lapso(segundos: number): string {
+  const min = Math.round(segundos / 60);
+  if (min < 60) return `${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 36) return `${h} h`;
+  return `${Math.round(h / 24)} días`;
+}
+
 function mediana(xs: number[]): number {
   const o = [...xs].sort((a, b) => a - b);
   const m = Math.floor(o.length / 2);
@@ -176,6 +185,14 @@ export function validar(
   }
 
   // 3) ¿Pudo llegar de la visita anterior?
+  //
+  // OJO CON LO QUE "ANTERIOR" SIGNIFICA: quien llama pasa la visita previa del
+  // mismo agente DENTRO de lo que está mirando (una empresa, un rango de
+  // fechas). Si el agente capturó algo en medio que quedó fuera del filtro, el
+  // hueco de tiempo que se mide es más grande que el real. Eso solo puede BAJAR
+  // la velocidad calculada, nunca subirla: la señal se queda corta, no inventa
+  // alertas. Se prefiere así antes que cruzar datos de otra empresa para
+  // completarla, que es justo lo que no se hace nunca.
   const a = ctx.anterior;
   if (!a || a.latitud == null || a.longitud == null || v.latitud == null || v.longitud == null) {
     s.push({ clave: "salto", estado: "sin-referencia", texto: "Sin visita previa que comparar." });
@@ -190,11 +207,24 @@ export function validar(
       s.push({ clave: "salto", estado: "revisar", texto: "Hora de captura inconsistente." });
     } else {
       const kmh = Math.round(m / 1000 / (seg / 3600));
-      s.push({
-        clave: "salto",
-        estado: kmh > LIMITE_KMH ? "revisar" : "ok",
-        texto: `${Math.round(m / 1000)} km desde la anterior (${kmh} km/h).`,
-      });
+      const km = Math.round(m / 1000);
+      // La velocidad solo se escribe cuando es el motivo de la alerta. Un
+      // recorrido normal de un día para otro daba textos como "20 km desde la
+      // anterior (0 km/h)", que se lee como un error del sistema y hace dudar
+      // del resto del tablero.
+      s.push(
+        kmh > LIMITE_KMH
+          ? {
+              clave: "salto",
+              estado: "revisar",
+              texto: `${km} km en ${lapso(seg)}: ${kmh} km/h.`,
+            }
+          : {
+              clave: "salto",
+              estado: "ok",
+              texto: `${km} km desde la anterior, ${lapso(seg)} después.`,
+            }
+      );
     }
   }
 

@@ -41,6 +41,25 @@ export async function listarClientes(agente?: Agente): Promise<Cliente[]> {
   });
 }
 
+// Un cliente por su slug, para la URL por empresa (/<slug>/panel).
+//
+// Sin cache: la URL es la puerta del tablero y una empresa recién dada de alta
+// tiene que funcionar al instante, no cuando expire una copia local. Es una fila
+// por apertura de página, no por consulta.
+//
+// Devuelve null si el slug no existe: la página dice "no encontramos esa
+// empresa" en vez de quedarse cargando para siempre.
+export async function clientePorSlug(slug: string): Promise<Cliente | null> {
+  const { data, error } = await supabase
+    .from("clientes")
+    .select("id, nombre, slug")
+    .eq("slug", slug)
+    .eq("activo", true)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as Cliente) ?? null;
+}
+
 // Asignaciones del agente en un cliente: qué marca, en qué cadena.
 export async function listarAsignaciones(
   agenteId: string,
@@ -122,7 +141,10 @@ export async function listarTiendas(
   return cache.redPrimero(clave, async () => {
     let q = supabase
       .from("tiendas")
-      .select("id, cliente_id, cadena_id, clave_sucursal, nombre, cadenas(nombre, slug)")
+      .select(
+        "id, cliente_id, cadena_id, clave_sucursal, nombre, latitud, longitud, " +
+          "cadenas(nombre, slug)"
+      )
       .eq("cliente_id", clienteId)
       .eq("activo", true)
       .order("nombre")
@@ -138,6 +160,10 @@ export async function listarTiendas(
       cadena_id: r.cadena_id,
       clave_sucursal: r.clave_sucursal,
       nombre: r.nombre,
+      // Van nulas hoy; el tablero las prefiere sobre la referencia derivada de
+      // las visitas en cuanto el catálogo las traiga.
+      latitud: r.latitud ?? null,
+      longitud: r.longitud ?? null,
       cadena_nombre: r.cadenas?.nombre,
       cadena_slug: r.cadenas?.slug,
     })) as Tienda[];

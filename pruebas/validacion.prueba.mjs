@@ -6,7 +6,7 @@
 // comprobaciones verifican que el resultado sea "sin-referencia" y NO "ok".
 
 export async function correr(
-  { validar, puntoDeReferencia, metrosEntre, aRevisar, LIMITE_DISTANCIA_M, LIMITE_KMH },
+  { validar, puntoDeReferencia, metrosEntre, aRevisar, lapso, LIMITE_DISTANCIA_M, LIMITE_KMH },
   check
 ) {
   // Sanborns Galerías Insurgentes, coordenadas reales del piloto.
@@ -114,14 +114,20 @@ export async function correr(
   const teletransporte = visita({ latitud: 16.8531, longitud: -99.8237 });
   const sSalto = validar(teletransporte, { ...ctxBase, anterior: previa });
   check(de(sSalto, "salto").estado === "revisar", `300 km en 30 min supera ${LIMITE_KMH} km/h: se marca`);
-  check(/km\/h/.test(de(sSalto, "salto").texto), "el texto dice la velocidad implícita");
+  check(/km\/h/.test(de(sSalto, "salto").texto), "cuando marca, el texto dice la velocidad implícita");
 
   // El mismo viaje con tiempo suficiente es normal: Mau fue a Acapulco de verdad.
   const enCoche = visita({ latitud: 16.8531, longitud: -99.8237, capturada_en: "2026-09-13T04:00:00.000Z" });
+  const sCoche = de(validar(enCoche, { ...ctxBase, anterior: previa }), "salto");
+  check(sCoche.estado === "ok", "el mismo recorrido con horas de por medio NO se marca: viajar es normal");
+  // Salió del tablero real: "20 km desde la anterior (0 km/h)" se lee como una
+  // falla del sistema y hace dudar del resto de las señales.
   check(
-    de(validar(enCoche, { ...ctxBase, anterior: previa }), "salto").estado === "ok",
-    "el mismo recorrido con horas de por medio NO se marca: viajar es normal"
+    !/km\/h/.test(sCoche.texto) && /después/.test(sCoche.texto),
+    "cuando no marca, el texto dice cuánto tiempo pasó y NO una velocidad de 0 km/h"
   );
+  check(lapso(1800) === "30 min" && lapso(7200) === "2 h" && lapso(259200) === "3 días",
+    "el lapso se escribe en la unidad que se lee de un vistazo");
   check(
     de(validar(visita(), { ...ctxBase, anterior: null }), "salto").estado === "sin-referencia",
     "la primera visita del agente no tiene con qué comparar"

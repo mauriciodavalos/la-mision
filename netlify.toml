@@ -12,3 +12,20 @@
 # OJO: las variables PUBLIC_SUPABASE_URL y PUBLIC_SUPABASE_ANON_KEY NO van aquí.
 # Se configuran en Netlify → Site settings → Environment variables, porque el
 # build las necesita (Astro incrusta las PUBLIC_ en el bundle del cliente).
+
+# URL por empresa: /bikes-shot/panel, /davalos-osio/panel, …
+#
+# Es una REESCRITURA (200), no una redirección: la barra de direcciones conserva
+# el slug, que es de donde la página lo lee. Con status 301 el slug se perdería.
+#
+# Se hace aquí y no con una ruta dinámica de Astro a propósito: `getStaticPaths`
+# tendría que consultar la lista de clientes durante el build, y entonces dar de
+# alta una empresa obligaría a volver a desplegar. Así, un cliente nuevo en la
+# base funciona al instante.
+#
+# El patrón es deliberadamente estrecho —un solo segmento y luego /panel— para
+# no atrapar rutas reales como /admin/reportes o /captura.
+[[redirects]]
+  from = "/:cliente/panel"
+  to = "/panel/index.html"
+  status = 200

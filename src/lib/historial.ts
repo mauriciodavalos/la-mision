@@ -33,6 +33,12 @@ export interface VisitaHistorial {
   tienda_id: string;
   cadena_id: string;
   datos: Record<string, unknown>;
+  // `agente_id` y `marca_id` los necesita el validador para agrupar (la visita
+  // anterior del MISMO agente, los duplicados de la MISMA marca); `precision_gps`
+  // es una de sus seis señales. Ver validacion.ts.
+  agente_id: string;
+  marca_id: string;
+  precision_gps: number | null;
 }
 
 export interface FotoHistorial {
@@ -63,8 +69,8 @@ export async function listarVisitas(
   let q = supabase
     .from("visitas")
     .select(
-      "id, capturada_en, latitud, longitud, notas, " +
-        "cliente_id, tienda_id, cadena_id, datos, " +
+      "id, capturada_en, latitud, longitud, notas, precision_gps, " +
+        "cliente_id, tienda_id, cadena_id, agente_id, marca_id, datos, " +
         "tiendas(clave_sucursal, nombre), cadenas(nombre), marcas(nombre), " +
         "agentes(nombre), evidencias(id)"
     )
@@ -95,6 +101,9 @@ export async function listarVisitas(
     tienda_id: r.tienda_id,
     cadena_id: r.cadena_id,
     datos: (r.datos ?? {}) as Record<string, unknown>,
+    agente_id: r.agente_id,
+    marca_id: r.marca_id,
+    precision_gps: r.precision_gps ?? null,
   }));
 }
 

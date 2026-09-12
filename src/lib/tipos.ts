@@ -57,6 +57,11 @@ export interface Tienda {
   nombre: string | null;
   cadena_nombre?: string; // resuelto en el join para mostrar
   cadena_slug?: string;   // resuelto en el join, para armar la ruta de Storage
+  // Punto OFICIAL de la sucursal. Hoy va nulo en las 264 tiendas —ningún CSV de
+  // origen lo trae— y por eso el tablero saca la referencia de las propias
+  // visitas (ver validacion.ts). Cuando exista, esta coordenada manda.
+  latitud?: number | null;
+  longitud?: number | null;
 }
 
 export interface Agente {
