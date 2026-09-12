@@ -24,7 +24,11 @@
 // v2 (31 ago 2026): ubicación obligatoria, compresión que no revienta la memoria
 // del teléfono y borrador de la captura. Subir la versión es lo que hace que un
 // teléfono con la app instalada tome el bundle nuevo en vez del cacheado.
-const VERSION = "v4";
+// v5 (12 sep 2026): ícono propio de la app (manifest con PNG de 192/512 y
+// maskable, apple-touch-icon). Sin subir la versión, un teléfono con la app ya
+// instalada seguiría sirviendo el manifest viejo desde el cache y conservaría el
+// ícono anterior.
+const VERSION = "v5";
 const CACHE = `lamision-shell-${VERSION}`;
 
 // Lo mínimo para arrancar. Los assets con hash (/_astro/*) se cachean solos al
