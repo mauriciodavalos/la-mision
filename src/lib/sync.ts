@@ -129,6 +129,11 @@ async function subirVisita(v: VisitaPendiente): Promise<void> {
       capturada_en: v.capturada_en,
       latitud: v.latitud,
       longitud: v.longitud,
+      // Se medía y se tiraba: la cola lo traía desde el día uno, pero la columna
+      // no existía (ver 0007_precision_gps.sql). Es lo que permite distinguir una
+      // lectura real —que varía con el techo— de una simulada, que suele venir
+      // siempre igual.
+      precision_gps: v.precision_gps ?? null,
       datos: v.datos,
       notas: v.notas || null,
     },
