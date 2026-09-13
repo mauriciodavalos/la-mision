@@ -66,6 +66,12 @@ export async function init() {
           <span class="bs-acceso-t">${esc(c.nombre)}</span>
           <span class="bs-acceso-d">Cobertura, validación y visitas de esta empresa</span>
           <span class="bs-acceso-u">/${esc(c.slug)}/panel</span>
+        </a>
+        <a class="bs-acceso" href="/${esc(c.slug)}/tiendas">
+          <span class="bs-acceso-t">${esc(c.nombre)} · tiendas</span>
+          <span class="bs-acceso-d">Sus sucursales: cuáles se han visitado y cuáles
+          no tienen coordenadas. Desde aquí se baja el CSV para cargarlas.</span>
+          <span class="bs-acceso-u">/${esc(c.slug)}/tiendas</span>
         </a>`
       )
       .join("") +

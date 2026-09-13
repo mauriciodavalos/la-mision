@@ -62,6 +62,11 @@ export interface Tienda {
   // visitas (ver validacion.ts). Cuando exista, esta coordenada manda.
   latitud?: number | null;
   longitud?: number | null;
+  // Lo que sirve para ubicarla cuando no hay coordenadas. De Bodega Aurrerá
+  // tenemos calle y estado; de Sanborns, ni eso.
+  direccion?: string | null;
+  municipio?: string | null;
+  estado?: string | null;
 }
 
 export interface Agente {

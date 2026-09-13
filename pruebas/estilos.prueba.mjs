@@ -68,4 +68,13 @@ export async function correr(_mod, check) {
     /\.bs-modal \.bs-mini[^{]*\{[^}]*min-height:\s*48px/.test(css),
     "los botones del popup miden al menos 48 px de alto"
   );
+
+  // 5) `.bs-auto` nace para la barra oscura de abajo, con texto casi blanco. El
+  //    catálogo de tiendas la reusa sobre fondo claro y la etiqueta desapareció.
+  //    El color vive en el SPAN, así que ahí tiene que ir el arreglo: ponerlo
+  //    solo en la etiqueta no alcanza (se comprobó midiendo, no a ojo).
+  check(
+    /\.bs-body \.bs-auto span[^{]*\{[^}]*color:/.test(css),
+    "la casilla reusada sobre fondo claro recolorea el span, no solo la etiqueta"
+  );
 }

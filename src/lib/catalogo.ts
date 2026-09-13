@@ -143,7 +143,7 @@ export async function listarTiendas(
       .from("tiendas")
       .select(
         "id, cliente_id, cadena_id, clave_sucursal, nombre, latitud, longitud, " +
-          "cadenas(nombre, slug)"
+          "direccion, municipio, estado, cadenas(nombre, slug)"
       )
       .eq("cliente_id", clienteId)
       .eq("activo", true)
@@ -164,6 +164,9 @@ export async function listarTiendas(
       // las visitas en cuanto el catálogo las traiga.
       latitud: r.latitud ?? null,
       longitud: r.longitud ?? null,
+      direccion: r.direccion ?? null,
+      municipio: r.municipio ?? null,
+      estado: r.estado ?? null,
       cadena_nombre: r.cadenas?.nombre,
       cadena_slug: r.cadenas?.slug,
     })) as Tienda[];

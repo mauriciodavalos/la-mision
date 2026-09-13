@@ -5,7 +5,7 @@
 // tablero abre la empresa equivocada y nadie se entera, porque la pantalla se ve
 // perfectamente bien.
 
-export async function correr({ slugDeLaUrl }, check) {
+export async function correr({ slugDeLaUrl, rutaDeEmpresa, SECCIONES }, check) {
   check(slugDeLaUrl("/bikes-shot/panel") === "bikes-shot", "la ruta normal da el slug");
   check(slugDeLaUrl("/davalos-osio/panel") === "davalos-osio", "un slug con guion se lee completo");
   check(slugDeLaUrl("/bikes-shot/panel/") === "bikes-shot", "la diagonal final no estorba");
@@ -30,4 +30,23 @@ export async function correr({ slugDeLaUrl }, check) {
   check(slugDeLaUrl("/-bikes/panel") === null, "un guion al inicio no lo produce slugify()");
   check(slugDeLaUrl("/bikes--shot/panel") === null, "dos guiones seguidos tampoco");
   check(slugDeLaUrl("/bikes-shot/PANEL") === null, "la palabra panel se exige tal cual");
+
+  // ---- la sección, ahora que hay más de una ----
+  check(
+    rutaDeEmpresa("/bikes-shot/panel")?.seccion === "panel" &&
+      rutaDeEmpresa("/bikes-shot/tiendas")?.seccion === "tiendas",
+    "se lee la sección además de la empresa"
+  );
+  check(
+    rutaDeEmpresa("/bikes-shot/tiendas")?.slug === "bikes-shot",
+    "la empresa se lee igual en cualquier sección"
+  );
+  // Una palabra que no es sección NO se interpreta: vale más un 404 que abrir
+  // algo que nadie pidió, y mañana /bikes-shot/borrar podría existir.
+  check(rutaDeEmpresa("/bikes-shot/cualquiera") === null, "una sección desconocida no se interpreta");
+  check(rutaDeEmpresa("/bikes-shot/admin") === null, "tampoco una que suene plausible");
+  check(
+    SECCIONES.every((s) => rutaDeEmpresa(`/bikes-shot/${s}`)?.seccion === s),
+    "todas las secciones declaradas se resuelven"
+  );
 }

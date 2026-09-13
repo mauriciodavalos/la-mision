@@ -252,7 +252,18 @@
 .bs-stats.bs-stats-4 { grid-template-columns: repeat(4, 1fr); }
 /* Lado derecho de la barra fija: interruptor de auto-refresco + botón. */
 .bs-queue-r { display: flex; align-items: center; gap: 12px; }
+/* Nace para la barra oscura de abajo (.bs-queue), por eso el texto va claro. */
 .bs-auto { display: flex; align-items: center; gap: 7px; color: var(--paper); cursor: pointer; }
+/* Fuera de esa barra el fondo es claro y el texto claro desaparece. Pasó en el
+   catálogo de tiendas con "solo sin coordenadas": la casilla se veía y la
+   etiqueta no. Mismo error que dejó ilegible el popup el 1 de septiembre —
+   heredar un estilo pensado para otro fondo. */
+.bs-body .bs-auto { color: var(--ink); }
+.bs-body .bs-auto input { accent-color: var(--petrol); }
+/* El color hay que ponerlo en el SPAN, no en la etiqueta: `.bs-auto span` lo
+   fija a blanco y gana sobre el padre. Medido con getComputedStyle, no a ojo —
+   en la captura de pantalla el primer intento parecía arreglado y no lo estaba. */
+.bs-body .bs-auto span { color: var(--ink-soft); }
 .bs-auto input { width: 16px; height: 16px; accent-color: var(--hivis); }
 .bs-auto span {
   font-family: 'Roboto Mono', monospace; font-size: 10px;
@@ -486,3 +497,19 @@
   font-family: 'Roboto Mono', monospace; font-size: 11px; color: var(--ink-soft);
   margin: 10px 0 0; letter-spacing: .04em;
 }
+
+/* ---- catálogo de tiendas (panel-tiendas-ui.ts) ---- */
+.bs-tiendas { padding: 4px 0 0; }
+.bs-tienda {
+  display: grid; grid-template-columns: 64px 1fr; gap: 12px; align-items: baseline;
+  padding: 11px 0; border-bottom: 1px solid var(--line);
+}
+.bs-tienda-clave {
+  font-family: 'Roboto Mono', monospace; font-size: 12px; font-weight: 500;
+  color: var(--petrol);
+}
+.bs-tienda-n { font-weight: 600; font-size: 14px; line-height: 1.25; }
+.bs-tienda-gps { color: var(--petrol); }
+/* Lo que falta se ve de lejos: es el motivo por el que existe esta pantalla. */
+.bs-tienda-sin { color: var(--alert); }
+.bs-tienda-nunca { color: var(--ink-soft); font-style: italic; }

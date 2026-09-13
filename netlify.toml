@@ -29,3 +29,8 @@
   from = "/:cliente/panel"
   to = "/panel/index.html"
   status = 200
+
+[[redirects]]
+  from = "/:cliente/tiendas"
+  to = "/tiendas/index.html"
+  status = 200

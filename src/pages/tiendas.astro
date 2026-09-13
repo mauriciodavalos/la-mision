@@ -1,0 +1,41 @@
+---
+// Catálogo de sucursales de una empresa. La dirección real es /<slug>/tiendas
+// —por ejemplo /bikes-shot/tiendas— y Netlify reescribe cualquiera de esas a
+// esta página (ver netlify.toml), igual que con el tablero.
+//
+// noindex: no tiene nada que hacer en un buscador.
+import "../styles/captura.css";
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Sin esto, iOS y Android vuelven enlaces de teléfono los números sueltos:
+         las claves de sucursal ("No. 1006") y los PIN salen azules y tap-para-llamar. -->
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#123B3A" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/icono-48.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icono-32.png" />
+    <title>Catálogo de tiendas — La Misión</title>
+  </head>
+  <body>
+    <div id="app" class="bs-root">
+      <header class="bs-head">
+        <div class="bs-shell" style="padding-bottom:18px">
+          <p class="bs-brand">La Misión · Catálogo</p>
+          <h1 class="bs-title">Cargando…</h1>
+        </div>
+      </header>
+    </div>
+
+    <script>
+      import { init } from "../lib/panel-tiendas-ui";
+      void init();
+    </script>
+  </body>
+</html>

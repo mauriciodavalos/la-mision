@@ -193,6 +193,8 @@ function montar(root: HTMLElement) {
           <p class="bs-quien">
             <span>${esc(estado.admin?.nombre ?? "")}</span>
             <span class="bs-admin">admin</span>
+            <a class="bs-quien-btn" href="/${esc(estado.cliente!.slug)}/tiendas"
+               style="text-decoration:none">sus tiendas</a>
             <a class="bs-quien-btn" href="/admin/reportes" style="text-decoration:none">todos los clientes</a>
           </p>
         </div>
