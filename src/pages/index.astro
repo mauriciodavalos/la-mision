@@ -1,11 +1,136 @@
 ---
-import Welcome from '../components/Welcome.astro';
-import Layout from '../layouts/Layout.astro';
+// Portada: el índice de accesos del sistema.
+//
+// Antes era la bienvenida de Astro, así que abrir la dirección a secas no
+// llevaba a ningún lado y había que dictar la ruta exacta por teléfono. Estaba
+// anotado como pendiente de fase 1 en la bitácora.
+//
+// Los enlaces estáticos se escriben aquí; los tableros por empresa los pinta
+// indice-ui.ts solo si en este dispositivo hay identidad de administrador (la
+// liga lleva el nombre del cliente y esta es la raíz de un sitio público).
+//
+// `/admin/tiendas` aparece únicamente cuando PUBLIC_ADMIN=1, que es la máquina
+// de Mauricio: en el sitio publicado esa página no monta nada, así que
+// anunciarla sería mandar a una pantalla muerta.
+//
+// noindex como el resto: esto no tiene nada que hacer en un buscador.
+import "../styles/captura.css";
 
-// Welcome to Astro! Wondering what to do next? Check out the Astro documentation at https://docs.astro.build
-// Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
+const adminLocal = import.meta.env.PUBLIC_ADMIN === "1";
 ---
 
-<Layout>
-	<Welcome />
-</Layout>
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Sin esto, iOS y Android vuelven enlaces de teléfono los números sueltos:
+         las claves de sucursal ("No. 1006") y los PIN salen azules y tap-para-llamar. -->
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#123B3A" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/icono-48.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icono-32.png" />
+    <title>La Misión — Agentes de Campo</title>
+  </head>
+  <body>
+    <div id="app" class="bs-root">
+      <header class="bs-head">
+        <div class="bs-shell" style="padding-bottom:18px">
+          <p class="bs-brand">La Misión</p>
+          <h1 class="bs-title">Agentes<br />de campo</h1>
+        </div>
+      </header>
+
+      <main class="bs-shell">
+        <div class="bs-body">
+          <section class="bs-field">
+            <div class="bs-legend">
+              <span class="bs-num">01</span><h2 class="bs-label">Para capturar</h2>
+            </div>
+            <div class="bs-accesos">
+              <a class="bs-acceso is-principal" href="/captura">
+                <span class="bs-acceso-t">Capturar una visita</span>
+                <span class="bs-acceso-d">
+                  La app de los agentes. Funciona sin señal y sincroniza sola cuando hay.
+                  Es la que se instala en el teléfono.
+                </span>
+                <span class="bs-acceso-u">/captura</span>
+              </a>
+            </div>
+          </section>
+
+          <section class="bs-field">
+            <div class="bs-legend">
+              <span class="bs-num">02</span><h2 class="bs-label">Para administrar</h2>
+            </div>
+            <div class="bs-accesos">
+              <a class="bs-acceso" href="/admin/reportes">
+                <span class="bs-acceso-t">Registros de campo</span>
+                <span class="bs-acceso-d">
+                  Todas las empresas, con filtro por agente y fecha. Aquí se corrige la
+                  tienda de una visita mal capturada.
+                </span>
+                <span class="bs-acceso-u">/admin/reportes</span>
+              </a>
+            </div>
+            <div id="accesos-empresa" style="margin-top:14px">
+              <p class="bs-hint" style="margin-left:0">
+                Los tableros por empresa —cobertura, validación y visitas de un solo
+                cliente— aparecen aquí en cuanto te identifiques como administrador.
+                La dirección es <strong>/&lt;empresa&gt;/panel</strong>.
+              </p>
+            </div>
+          </section>
+
+          {
+            adminLocal && (
+              <section class="bs-field">
+                <div class="bs-legend">
+                  <span class="bs-num">03</span><h2 class="bs-label">Herramientas</h2>
+                </div>
+                <p class="bs-hint">
+                  Solo en esta computadora, con PUBLIC_ADMIN=1. En el sitio publicado no
+                  existen.
+                </p>
+                <div class="bs-accesos">
+                  <a class="bs-acceso" href="/admin/tiendas">
+                    <span class="bs-acceso-t">Importar tiendas</span>
+                    <span class="bs-acceso-d">
+                      Alta de sucursales por CSV. Reconoce columnas de latitud y longitud
+                      si el archivo las trae.
+                    </span>
+                    <span class="bs-acceso-u">/admin/tiendas</span>
+                  </a>
+                  <a class="bs-acceso" href="/prueba-conexion">
+                    <span class="bs-acceso-t">Probar conexión</span>
+                    <span class="bs-acceso-d">
+                      Diagnóstico: confirma que el sitio alcanza Supabase. Sirve cuando
+                      algo deja de sincronizar y no se sabe de qué lado está la falla.
+                    </span>
+                    <span class="bs-acceso-u">/prueba-conexion</span>
+                  </a>
+                </div>
+              </section>
+            )
+          }
+
+          <p class="bs-note">
+            Las pantallas de administración piden identificarse con un agente que tenga
+            permiso de administrador. Eso evita entrar por equivocación; no es una
+            cerradura — en fase 1 el aislamiento entre empresas es por consulta, no por
+            RLS.
+          </p>
+          <p class="bs-pie" id="indice-version"></p>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      import { init } from "../lib/indice-ui";
+      void init();
+    </script>
+  </body>
+</html>

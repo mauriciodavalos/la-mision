@@ -19,6 +19,9 @@ const habilitado = import.meta.env.PUBLIC_ADMIN === "1";
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Sin esto, iOS y Android vuelven enlaces de teléfono los números sueltos:
+         las claves de sucursal ("No. 1006") y los PIN salen azules y tap-para-llamar. -->
+    <meta name="format-detection" content="telephone=no" />
     <meta name="theme-color" content="#123B3A" />
     <meta name="robots" content="noindex, nofollow" />
     <title>Importar tiendas — La Misión</title>

@@ -458,3 +458,31 @@
   border-radius: 2px; background: var(--paper); color: var(--ink-soft);
 }
 .bs-falta strong { font-family: 'Roboto Mono', monospace; color: var(--ink); }
+
+/* ---- índice de accesos (index.astro) ---- */
+.bs-accesos { display: grid; gap: 10px; }
+.bs-acceso {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--line); border-left: 3px solid var(--line);
+  border-radius: 3px; background: var(--paper); padding: 14px 16px;
+  transition: border-color .15s, background .15s;
+}
+.bs-acceso:hover, .bs-acceso:focus-visible { border-color: var(--petrol); border-left-color: var(--petrol); }
+.bs-acceso:focus-visible { outline: 2px solid var(--petrol); outline-offset: 2px; }
+/* La de capturar es la que abren tres personas todos los días; las demás las
+   abre Mauricio de vez en cuando. */
+.bs-acceso.is-principal { border-left-color: var(--petrol); }
+.bs-acceso-t {
+  display: block; font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+  font-size: 21px; line-height: 1.05; text-transform: uppercase; letter-spacing: .01em;
+}
+.bs-acceso-d { display: block; font-size: 13px; color: var(--ink-soft); line-height: 1.5; margin-top: 5px; }
+.bs-acceso-u {
+  display: block; font-family: 'Roboto Mono', monospace; font-size: 10.5px;
+  color: var(--petrol); margin-top: 8px; letter-spacing: .04em;
+}
+#indice-version { font-family: 'Roboto Mono', monospace; font-size: 11px; }
+.bs-pie {
+  font-family: 'Roboto Mono', monospace; font-size: 11px; color: var(--ink-soft);
+  margin: 10px 0 0; letter-spacing: .04em;
+}
