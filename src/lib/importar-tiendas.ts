@@ -15,6 +15,9 @@ export interface FilaTienda {
   direccion: string | null;
   municipio: string | null;
   estado: string | null;
+  // Texto, no número: los CP del centro del país empiezan con cero (06500) y
+  // como entero se convierten en 6500 sin que nada falle (ver 0008).
+  cp: string | null;
   latitud: number | null;
   longitud: number | null;
 }
@@ -102,8 +105,17 @@ const ALIAS: Record<keyof FilaTienda, string[]> = {
   clave_sucursal: ["clave_sucursal", "clave", "no_tienda", "numero_tienda", "num_tienda", "id_tienda", "sucursal_clave", "cr"],
   nombre: ["nombre", "sucursal", "nombre_sucursal", "nombre_tienda", "tienda", "nombre_interno", "descripcion"],
   direccion: ["direccion", "domicilio", "calle"],
-  municipio: ["municipio", "ciudad", "delegacion", "alcaldia", "localidad"],
+  // "municipio_alcaldia" salió del catálogo real de Sanborns (13 sep): sin él,
+  // el municipio de las 141 sucursales se perdía en silencio — la importación
+  // decía "correcto" y la columna quedaba nula. Los nombres compuestos son
+  // comunes porque en México unos estados tienen municipios y CDMX alcaldías.
+  municipio: [
+    "municipio", "ciudad", "delegacion", "alcaldia", "localidad",
+    "municipio_alcaldia", "alcaldia_municipio", "municipio_o_alcaldia",
+    "delegacion_municipio", "municipio_delegacion",
+  ],
   estado: ["estado", "entidad", "entidad_federativa"],
+  cp: ["cp", "codigo_postal", "c_p", "codigopostal", "postal", "zip"],
   latitud: ["latitud", "lat"],
   longitud: ["longitud", "lng", "lon", "long"],
 };
@@ -185,6 +197,8 @@ export function revisarCSV(texto: string): Revision {
       direccion: mapa.direccion !== undefined ? aTexto(celdas[mapa.direccion]) : null,
       municipio: mapa.municipio !== undefined ? aTexto(celdas[mapa.municipio]) : null,
       estado: mapa.estado !== undefined ? aTexto(celdas[mapa.estado]) : null,
+      // Con aTexto y no aNumero: "06500" tiene que llegar con su cero.
+      cp: mapa.cp !== undefined ? aTexto(celdas[mapa.cp]) : null,
       latitud: latOk ? lat : null,
       longitud: lngOk ? lng : null,
     };
@@ -228,6 +242,7 @@ export async function importarTiendas(
       direccion: f.direccion,
       municipio: f.municipio,
       estado: f.estado,
+      cp: f.cp,
       latitud: f.latitud,
       longitud: f.longitud,
       activo: true,

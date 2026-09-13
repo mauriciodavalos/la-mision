@@ -88,9 +88,9 @@ function comoCsv(filas: Fila[]): string {
     const s = v == null ? "" : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const cab = ["clave_sucursal", "nombre", "direccion", "municipio", "estado", "latitud", "longitud"];
+  const cab = ["clave_sucursal", "nombre", "direccion", "municipio", "estado", "cp", "latitud", "longitud"];
   const cuerpo = filas.map((t) =>
-    [t.clave_sucursal, t.nombre, t.direccion, t.municipio, t.estado,
+    [t.clave_sucursal, t.nombre, t.direccion, t.municipio, t.estado, t.cp,
      t.latitud, t.longitud].map(campo).join(",")
   );
   // Marca de orden de bytes (U+FEFF) al inicio. Sin ella, Excel en Windows abre
@@ -131,6 +131,7 @@ function visibles(): Fila[] {
       norm(f.clave_sucursal).includes(t) ||
       norm(f.nombre ?? "").includes(t) ||
       norm(f.municipio ?? "").includes(t) ||
+      norm(f.cp ?? "").includes(t) ||
       norm(f.estado ?? "").includes(t)
     );
   });
@@ -156,7 +157,7 @@ function renderLista() {
           ? `<a class="bs-tienda-gps" href="https://www.google.com/maps?q=${f.latitud},${f.longitud}"
                target="_blank" rel="noopener">${f.latitud.toFixed(4)}, ${f.longitud.toFixed(4)}</a>`
           : `<span class="bs-tienda-sin">sin coordenadas</span>`;
-      const dir = [f.direccion, f.municipio, f.estado]
+      const dir = [f.direccion, f.municipio, f.cp ? `CP ${f.cp}` : null, f.estado]
         .filter(Boolean).map(String).join(" · ");
       const vis =
         f.visitas === 0

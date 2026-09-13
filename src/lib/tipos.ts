@@ -67,6 +67,7 @@ export interface Tienda {
   direccion?: string | null;
   municipio?: string | null;
   estado?: string | null;
+  cp?: string | null;
 }
 
 export interface Agente {
