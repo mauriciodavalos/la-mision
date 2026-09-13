@@ -29,6 +29,10 @@ set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 raiz="$(dirname "$dir")"
+# La lista se escribe PARA CADA limpieza y no se versiona: una ruta por línea,
+# tal como aparece en el bucket, y las líneas que empiezan con # se ignoran. La
+# del 2-sep se borró del repo una vez corrida — conservar rutas de archivos que
+# ya no existen solo invita a correr el script contra una lista vieja.
 lista="$dir/limpieza_pruebas_fotos.txt"
 
 [ -f "$lista" ] || { echo "No encuentro $lista" >&2; exit 1; }

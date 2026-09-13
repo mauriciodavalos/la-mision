@@ -192,8 +192,10 @@ grande lo exija y lo pague.
 - `alta_cliente.sql` — onboarding parametrizado y re-ejecutable: cliente → marca →
   cadena → agentes → membresía → PIN. Se llena el bloque "LLENA ESTO" y se corre.
   Los nombres reales viven en la base, no en el repo.
-- `seed.sql` — plantilla de onboarding (comentada, sin datos reales).
-- `seed_demo.sql` — tenant `[DEMO]` de prueba (borrable).
+- `alta_agente.sql` — suma un agente a un cliente y le asigna marca y cadena.
+- `limpieza_pruebas_fotos.sh` — borra fotos del Storage por lista de rutas, con la
+  `service_role` pedida al CLI en el momento. La lista (un archivo de texto, una
+  ruta por línea) se escribe para cada limpieza; no se versiona.
 
 **App (`src/`)**
 - `pages/captura.astro` — página `/captura`.
@@ -273,7 +275,6 @@ Base de datos (CLI ya vinculado al proyecto):
 npx supabase db push                                         # aplica migraciones
 npx supabase db query --linked -f supabase/alta_cliente.sql  # alta de empresa + marca + cadena + agente
 npx supabase db query --linked -f supabase/alta_agente.sql   # sumar agente y asignarle marca/cadena
-npx supabase db query --linked -f supabase/limpieza_demo.sql # borrar el tenant de prueba
 ```
 
 Storage por CLI (experimental, pero funciona):
@@ -295,9 +296,15 @@ Astro 7 corre el dev server en segundo plano: `npx astro dev status | stop | log
 ## Tenant demo — ya borrado
 
 `[DEMO] Cliente de prueba` se eliminó el 30 de agosto, una vez verificado el flujo
-con clientes reales. El seed (`seed_demo.sql`) y el script de limpieza
-(`limpieza_demo.sql`) se quedan en el repo por si hace falta volver a montar un
-entorno de prueba desde cero.
+con clientes reales.
+
+**Sus scripts se borraron del repo el 13 de septiembre**, revirtiendo la decisión
+que se había tomado aquí de conservarlos "por si hace falta volver a montar un
+entorno de prueba". El motivo del cambio: `seed_demo.sql` insertaba en la MISMA
+base que hoy tiene 82 visitas reales de dos clientes. Un script que mete un
+tenant falso en producción dejó de ser una comodidad y pasó a ser un riesgo, y la
+forma correcta de probar de cero es un proyecto de Supabase aparte. Siguen en el
+historial de git si alguna vez hacen falta.
 
 ---
 
