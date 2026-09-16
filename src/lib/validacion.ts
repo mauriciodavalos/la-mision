@@ -105,6 +105,84 @@ export function lapso(segundos: number): string {
   return `${Math.round(h / 24)} días`;
 }
 
+/**
+ * Arriba de esta distancia la captura NO se guarda.
+ *
+ * 300 m y no 150 porque se midió contra las 96 visitas reales antes de ponerlo:
+ * la mediana es de 17 m y el percentil 95, de 99 m, así que 300 deja pasar 95 de
+ * 96 y solo detiene la que está a 3 km. A 150 m también habría detenido una
+ * visita legítima de 155 m —el agente estaba ahí, con mala lectura bajo techo— y
+ * eso es justo lo que no se vale: la evidencia de una visita real no se pierde
+ * por un candado.
+ *
+ * Lo que este candado SÍ atrapa es el error honesto: elegir la sucursal
+ * equivocada, como las dos que quedan a 8 m una de otra. Lo que NO atrapa es una
+ * ubicación simulada, porque un GPS falseado pone al agente justo en la tienda.
+ * Conviene tenerlo claro para no confiar de más en él.
+ */
+export const LIMITE_CAPTURA_M = 300;
+
+/**
+ * Metros entre la lectura del GPS y la tienda elegida, o `null` cuando no hay
+ * con qué comparar.
+ *
+ * El `null` es la parte importante: si la tienda no trae coordenada —el catálogo
+ * de un cliente nuevo puede llegar sin puntos— no se puede afirmar que el agente
+ * está lejos, y en la duda NO se bloquea. Un candado que se dispara sin datos
+ * deja al agente sin poder capturar por algo que no es culpa suya.
+ */
+export function metrosALaTienda(
+  gps: { lat: number; lng: number } | null | undefined,
+  tienda: { latitud?: number | null; longitud?: number | null } | null | undefined
+): number | null {
+  if (!gps || !tienda) return null;
+  if (tienda.latitud == null || tienda.longitud == null) return null;
+  return metrosEntre(gps.lat, gps.lng, tienda.latitud, tienda.longitud);
+}
+
+/** Los metros de más si la captura está fuera de rango; `null` si se puede guardar. */
+export function fueraDeRango(
+  gps: { lat: number; lng: number } | null | undefined,
+  tienda: { latitud?: number | null; longitud?: number | null } | null | undefined
+): number | null {
+  const m = metrosALaTienda(gps, tienda);
+  return m != null && m > LIMITE_CAPTURA_M ? m : null;
+}
+
+/**
+ * Una distancia en palabras: "80 m", "1.2 km", "57 km".
+ *
+ * Se redondea a decenas debajo del kilómetro a propósito: el GPS de un teléfono
+ * trae ±10 m de error, así que "a 47 m" finge una precisión que no existe.
+ */
+export function distanciaCorta(metros: number): string {
+  if (metros < 1000) return `${Math.round(metros / 10) * 10} m`;
+  if (metros < 10000) return `${(metros / 1000).toFixed(1)} km`;
+  return `${Math.round(metros / 1000)} km`;
+}
+
+/**
+ * Ordena de más cerca a más lejos de un origen. Lo que no tiene coordenada NO
+ * se descarta: se va al final conservando su orden, porque una tienda sin punto
+ * en el catálogo tiene que poder elegirse igual (el catálogo de un cliente nuevo
+ * puede llegar sin coordenadas, y entonces esto no debe esconderle sus tiendas).
+ */
+export function ordenarPorCercania<
+  T extends { latitud?: number | null; longitud?: number | null }
+>(items: T[], origen: { lat: number; lng: number }): T[] {
+  const con: { item: T; m: number }[] = [];
+  const sin: T[] = [];
+  for (const x of items) {
+    if (x.latitud != null && x.longitud != null) {
+      con.push({ item: x, m: metrosEntre(origen.lat, origen.lng, x.latitud, x.longitud) });
+    } else {
+      sin.push(x);
+    }
+  }
+  con.sort((a, b) => a.m - b.m);
+  return [...con.map((c) => c.item), ...sin];
+}
+
 function mediana(xs: number[]): number {
   const o = [...xs].sort((a, b) => a - b);
   const m = Math.floor(o.length / 2);

@@ -841,72 +841,223 @@ resultado engaña.
 - Tras corregir la de Insurgentes quedan **dos visitas de Anframa en 1006** ese día,
   con notas distintas. Puede ser legítimo o puede sobrar una.
 
+## Sesiones del 11 al 13 de septiembre — lo que no quedó anotado
+
+Tres sesiones de trabajo entraron al repo sin pasar por aquí. Queda el resumen,
+porque una bitácora que se atrasa hace creer que el proyecto está a medias
+cuando no lo está:
+
+- **Tablero por empresa** en `/<slug>/panel` (reescritura de Netlify, no ruta
+  dinámica de Astro: dar de alta una empresa no debe obligar a redesplegar).
+- **Validación de visitas** (`validacion.ts`): seis señales con tres estados
+  —ok / revisar / **sin-referencia**—, y la tercera nunca se disfraza de verde.
+- **`precision_gps`** se medía y se tiraba: la cola la llevaba y `visitas` no
+  tenía columna. Migración **0007**; las 82 visitas anteriores quedan en null.
+- **Ícono propio** de la app (sw v5) y favicons propios (sw v6).
+- **Catálogo de tiendas por empresa** en `/<slug>/tiendas`, con descarga en CSV.
+- **Coordenadas de Sanborns**: 141 de 141, más dirección, municipio, estado y CP.
+  Migración **0008** (`cp` es TEXT: 45 de 141 empiezan con cero).
+
+---
+
+## Sesión del 15 de septiembre — el padrón nacional de Walmart y Bodega Aurrerá
+
+### Lo que llegó
+Mauricio consiguió el padrón completo: **960 tiendas, 622 Bodega Aurrerá y 338
+Walmart Supercenter**, con dirección, CP, municipio, estado y **coordenadas**.
+Sale del Reporte A de Retail Link (corte al 10-09-2026) y las coordenadas de
+Google Places; 808 de 960 con evidencia fuerte, 30 verificadas a mano en el mapa
+y 4 corregidas. Con esto se cierra el hueco que llevaba semanas abierto: Bodega
+Aurrerá estaba en **0 de 123** sucursales con coordenadas.
+
+Eso cambió una cosa de fondo del catálogo: **Bikes Shot no vende en una cadena,
+vende en dos.** El padrón trae la columna Formato, y Walmart Supercenter es una
+cadena distinta con sus propias sucursales y su propia clave.
+
+### Lo que se verificó ANTES de escribir
+Escribir 960 filas sobre una base con 100 visitas reales encima no se hace a
+ciegas. En orden:
+
+1. **Cruce contra las 123 que ya estaban:** las 123 embonan por clave, **ninguna**
+   cambió de formato y **ningún nombre difiere**. O sea que el padrón es el mismo
+   universo, más grande.
+2. **Integridad del propio padrón:** 0 claves repetidas, 0 coordenadas fuera de
+   México, 0 filas sin coordenada, los 960 CP de cinco dígitos (49 empiezan con
+   cero — de ahí que `cp` sea TEXT).
+3. **Contra el GPS de campo**, que es la única referencia independiente que hay:
+   de las 18 sucursales con visitas, **15 caen dentro de 300 m** y la mediana es
+   de **46 m**. Es el mismo cruce que se le hizo al catálogo de Sanborns.
+
+Las **tres que no cuadran** se diagnosticaron una por una, buscando la tienda del
+padrón más cercana a la lectura de campo: en ninguna hay otra sucursal cerca que
+explique el punto, y en dos de las tres el padrón es coherente consigo mismo (CP,
+municipio y calle apuntan al mismo lugar que la coordenada). O sea que **lo que
+hay que revisar es la visita, no el punto**:
+
+| Sucursal | Lectura de campo contra el padrón |
+|---|---|
+| 1828 BA ACOLMAN TEPEXPAN | **57 km** — la lectura cae por Cuajimalpa; el padrón concuerda con Acolman |
+| 3784 BA 1 DE MAYO | **8.3 km** — la lectura cae en Tacubaya; el padrón, en Naucalpan, igual que su CP |
+| 3761 BA TULYEHUALCO | **3 km** — el único ambiguo; la lectura quedó a 961 m de Lomas Estrella, visitada una hora antes |
+
+### Lo que se escribió
+Cadena nueva **Walmart Supercenter** (slug `walmart-supercenter`), **622 + 338
+tiendas** por upsert sobre `(cadena_id, clave_sucursal)` —las mismas semánticas
+del importador, así que volver a correrlo actualiza en vez de duplicar— y la
+asignación de Lalo a la cadena nueva, sin la cual las 338 no existirían para él.
+
+Verificado después de escribir: **960 tiendas, todas con coordenada, CP y
+municipio**, 32 estados, **0 filas cambiaron de id** (las visitas apuntan a esos
+ids) y las 21 visitas de Bikes Shot siguen resolviendo, ahora con tienda
+georreferenciada.
+
+Los `estado` de las 123 viejas se normalizaron al vocabulario del padrón
+("CDMX" → "Ciudad de México", "Estado de Mexico" → "México"). Sin eso el mismo
+estado aparecería con dos nombres en el tablero.
+
+### Lo que el dato obligó a cambiar en la app
+Con 123 sucursales de CDMX y Edomex, abrir la captura y ver las primeras 20 en
+orden alfabético funcionaba. Con 960 de todo el país, **la primera pantalla le
+ofrece al agente tiendas de Aguascalientes mientras está parado en Iztapalapa**.
+Cargar el padrón sin tocar el buscador habría empeorado la captura en campo.
+
+`buscarTiendas()` ahora ordena **por cercanía a la lectura del GPS antes de
+cortar a 20**, y cada renglón dice a qué distancia está. Tres decisiones:
+
+1. **Lo que no tiene coordenada no se esconde**: se va al final. El catálogo de
+   un cliente nuevo puede llegar sin puntos y eso no puede dejarlo sin capturar.
+2. **Sin GPS todavía**, orden alfabético: es peor no mostrar nada.
+3. **Debajo de 50 m dice "aquí mismo"**, no "a 0 m". El GPS del teléfono trae
+   ±10 m; poner un número finge una precisión que la lectura no tiene.
+
+La lista se reacomoda sola cuando llega la primera lectura, **una sola vez y
+solo si el agente no ha escrito ni elegido nada**: moverle la lista debajo del
+dedo sería peor que el orden alfabético.
+
+### Cómo se verificó
+`astro check` limpio y **127 comprobaciones** (11 nuevas). Y como en este
+proyecto eso ya falló dos veces, se cargó la app **compilada** en Chrome por CDP
+con la ubicación simulada en BA Iztapalapa (3764): la lista sale encabezada por
+esa tienda con "aquí mismo", siguen Churubusco a 2.9 km y Plaza Oriente a 4.1 km
+—las dos cadenas mezcladas por distancia—, buscar "insurgentes" ofrece primero
+las dos de CDMX y hasta el final la de Tepic a 645 km, se puede elegir una
+tienda, no hay desborde horizontal a 390 px y cero errores de JS.
+
+De paso, el arnés cazó su primer error real: al recargar la página se perdía el
+`Emulation.setGeolocationOverride` y la lista salía alfabética. Es exactamente el
+síntoma que veríamos en un teléfono sin permiso de ubicación.
+
+### Costo
+El catálogo que baja el teléfono de Lalo pasa de ~11 KB a **86 KB**, una vez por
+refresco de cache y cacheado en IndexedDB. **Cero llamadas nuevas, cero storage,
+cero egress de imágenes** — que es lo caro. Sin dependencias nuevas.
+
+### Archivos
+`src/lib/validacion.ts` (`ordenarPorCercania`, `distanciaCorta`),
+`src/lib/catalogo.ts` (parámetro `cerca` en `buscarTiendas`),
+`src/lib/captura-ui.ts` (distancia en cada renglón y reacomodo al llegar el GPS),
+`public/sw.js` + `src/lib/rastro.ts` a **v7**,
+`pruebas/validacion.prueba.mjs` (11 comprobaciones nuevas),
+`padron_bodega_aurrera.csv` y `padron_walmart_supercenter.csv` (nuevos, ya
+probados contra `revisarCSV`: 960 filas válidas, 0 inválidas, 0 campos nulos).
+**Sin migraciones**: todas las columnas existían desde 0001 y 0008.
+
+### Gancho de fase 2
+Con 960 tiendas y coordenadas, lo que sigue naturalmente es **armar la ruta del
+día por distancia real** en vez de por CEDIS —el padrón advierte que el CEDIS es
+de donde sale el camión, no dónde está la tienda: el 7464 surte 10 estados—. Y
+en el tablero, cobertura por estado, que hoy no se puede ver.
+
+---
+
+### Limpieza de las visitas de prueba (mismo día)
+
+Se borraron **4 visitas de prueba** del agente admin, con sus 8 fotos. Las cuatro
+dicen "Prueba …" en la nota y las cuatro se revisaron una por una contra la base
+antes de tocarlas:
+
+| id | fecha | tienda | nota |
+|---|---|---|---|
+| `fd22b691` | 5 sep | 3784 BA 1 DE MAYO | Prueba para corregir |
+| `d532601f` | 5 sep | 1028 BUENAVISTA | Prueba para corregir |
+| `95f644d0` | 6 sep | 1032 ACAPULCO CENTRO | Prueba sin conexión |
+| `1d4b60c6` | 12 sep | 1828 BA ACOLMAN TEPEXPAN | Prueba desierto |
+
+**No se tocaron** las otras dos visitas de Mau (10 sep, 2240 BA Sta Cruz y 1428 BA
+San Mateo Atenco): traen notas de exhibición reales. Que una visita sea del admin
+no la vuelve una prueba.
+
+**El filtro automático no alcanza para decidir esto.** Buscar "prueba|test|demo…"
+en las notas marcó dos visitas de Lalo que son trabajo real: la palabra que
+empataba era `demo` dentro de "po**demo**s". Por eso la lista se arma leyendo, no
+con una expresión regular.
+
+**Y esto cerró la duda del padrón:** tres de las cuatro pruebas eran justamente las
+visitas que no cuadraban con las coordenadas nuevas —Acolman a 57 km, 1 de Mayo a
+8.3 km y Acapulco Centro—. Eran capturas hechas desde CDMX con la tienda
+equivocada a propósito. **El padrón estaba bien**; queda pendiente preguntarle a
+Lalo solo por 3761 Tulyehualco.
+
+Orden seguido, el de siempre: **fotos primero** (`limpieza_pruebas_fotos.sh
+--confirmar`, que verifica contra el bucket y no contra el código de salida),
+**filas después** (`limpieza_pruebas.sql`, por UUID explícito — nunca por fecha ni
+por el texto de la nota, con las agentes capturando a esa misma hora).
+
+**Corte verificado al cerrar:** 96 visitas · 192 evidencias · **36.2 MB**. Cero
+visitas sin GPS, cero con menos de dos fotos, **cero filas sin archivo en Storage
+y cero archivos huérfanos** (192 objetos en 60 carpetas, cuadra exacto). Las dos
+listas (`limpieza_pruebas.sql` y `limpieza_pruebas_fotos.txt`) se borraron del
+repo una vez corridas, como la vez pasada.
+
+---
+
 ## Dónde retomamos (siguiente sesión)
 
 ### Lo que está corriendo ahora mismo
+**En producción, con 3 agentes capturando a diario.** Al 15 de septiembre:
+**100 visitas, 200 evidencias**, dos fotos por visita sin una sola excepción.
+Hoy entraron 15. Los pares que parecen duplicados de Davalos Osio no lo son:
+son Ondina y Anframa, dos marcas en la misma tienda.
 
-**Lalo, Carmen y Romina están capturando en campo.** Al cerrar el 31 de agosto la
-base tiene **1 visita**: la de Lalo en BA Flores Magón. Las cuatro de prueba se
-borraron, con sus fotos. La decisión, sostenida dos sesiones seguidas, es **dejarlos trabajar unos días antes
-de tocar nada**: se aprende más de tres días de uso real que de adivinar mejoras en
-el escritorio.
+**El catálogo quedó completo: 960 sucursales de Bikes Shot (Bodega Aurrerá y
+Walmart Supercenter) y 141 de Davalos Osio (Sanborns), todas con coordenadas.**
 
-**Primera pregunta al retomar:** ¿qué pasó en campo? Antes de proponer nada, revisar
-cuántas visitas hay, de quién, con cuántas fotos, y si alguna quedó sin coordenadas.
-
-Consulta que **ya está probada** y no necesita psql ni la CLI de Supabase (lee las
-llaves de `.env.local` y pega contra PostgREST):
-
-```bash
-set -a && . ./.env.local; set +a
-curl -s -H "apikey: $PUBLIC_SUPABASE_ANON_KEY"   "$PUBLIC_SUPABASE_URL/rest/v1/visitas?select=capturada_en,latitud,notas,agentes(nombre),clientes(nombre),tiendas(nombre),marcas(nombre),cadenas(nombre),evidencias(tipo,storage_path)&order=capturada_en.asc"
-```
-
-Ojo: `visitas` **no tiene columna `estado`** — el estado (`pendiente`/`error`) vive en
-la cola de IndexedDB del teléfono, no en el servidor. Una visita atorada no se ve en
-la base: se ve porque *falta*. Para detectarlas hay que preguntarle al agente o
-comparar contra su Historial.
-
-**Lo del GPS ya se resolvió** el mismo 31 de agosto: la ubicación pasó a ser
-obligatoria y la búsqueda se rehizo para que funcione bajo techo (ver la sección de
-las dos fallas). Lo que queda es **confirmarlo en campo**: que Carmen capture una
-visita completa adentro de una tienda y que Romina tome una foto en el teléfono
-donde se caía.
-
-Con eso en la mano se decide qué sigue. Lo de abajo es la lista de candidatos, no
-un compromiso.
+### Lo primero al retomar
+**Desplegar.** La base ya tiene las 960 tiendas, pero el buscador por cercanía
+vive en el árbol de trabajo: mientras no se suba, el teléfono de Lalo corre v6 y
+la primera pantalla le ofrece 20 tiendas del otro lado del país. El orden es
+`npm run build` (termina en exit code 9 en Windows, después de escribir `dist`:
+si dice "Complete!", salió bien), commit y push a `main`; Netlify despliega solo.
 
 ### Candidatos, por orden de valor
-1. ~~**Pantalla de reportes.**~~ **HECHA el 31 de agosto** (`/admin/reportes`, ver
-   la sección de arriba). Lo que queda es probarla en el teléfono y decidir, con
-   uso real, si le falta exportar a CSV o filtrar por marca y por cadena.
-2. **Pantalla para administrar el catálogo.** Hoy `/admin/tiendas` solo IMPORTA:
-   no lista, no busca, no corrige un nombre mal escrito ni da de baja una sucursal
-   cerrada. Y las altas de agentes y asignaciones son por SQL. Con 2 clientes se
-   aguanta; con el tercero, no.
-3. **Smoke test del importador CSV.** Las dos cargas (123 + 141 tiendas) se
-   hicieron por SQL generado, así que `/admin/tiendas` **nunca se ha ejercitado
-   contra la base**. Correrlo con `PUBLIC_ADMIN=1` y reimportar el mismo CSV: no
-   debe duplicar.
-4. **URL por cliente** (slug → `cliente_id`). Los slugs ya existen (`bikes-shot`,
-   `davalos-osio`); falta resolver el tenant desde la URL. Le da a cada empresa su
-   dirección y quita el selector de empresa para el admin.
-5. **Borrar una visita debería borrar sus fotos.** Van tres veces que tablas y
-   Storage se desincronizan al limpiar. **Se decidió NO hacerlo por ahora** (30
-   ago): mientras el borrado sea manual y de pruebas, el orden correcto —primero
-   las carpetas en el dashboard, luego el `delete` en SQL— es suficiente. Retomar
-   si aparece evidencia inconsistente con datos reales.
-6. **Iconos PNG del manifest** (192 y 512 px) para que instale bien en iOS.
-7. **Enlazar `index.astro` → `/captura`** (hoy sigue la bienvenida de Astro) y
-   borrar `/prueba-conexion`, que era temporal.
-8. **Mover el proyecto fuera de OneDrive.**
-9. **Fase 2:** Supabase Auth (que **sustituye** al PIN, no convive con él), activar
-   RLS (`9999_rls_fase2.sql.txt`, ya actualizado para slugs, asignaciones y admin),
-   formatos configurables desde UI, reportes por cliente, facturación.
+1. **Las tres visitas que no cuadran con el padrón** (1828, 3784, 3761).
+   Preguntarle a Lalo antes de tocar nada: puede ser tienda equivocada al
+   capturar, y para eso está el corrector.
+2. **La precisión de GPS de Lalo reporta 1 m** en 4 de sus 5 lecturas con
+   `precision_gps`; Carmen y Romina van en 7–11 m, que es lo normal de un
+   teléfono. Un "1" clavado es la firma de una app de ubicación simulada. Desde
+   la web **no se puede demostrar** (ya se cerró esa pregunta), pero ahora que
+   sus tiendas tienen coordenadas, la distancia sí lo va a delatar.
+3. **Administrar el catálogo desde la UI.** `/admin/tiendas` solo importa y
+   `/<slug>/tiendas` solo lista: no se corrige un nombre ni se da de baja una
+   sucursal cerrada. Las altas de agentes y las asignaciones siguen siendo SQL
+   —la de Lalo a Walmart Supercenter se hizo a mano en esta sesión—. Con 960
+   tiendas y dos clientes ya pesa.
+4. **Cobertura por estado en el tablero.** Bikes Shot pasó de 123 a 960
+   sucursales: el porcentaje de cobertura contra el padrón nacional ya no dice
+   nada útil sin cortarlo por estado o por cercanía a la ruta del agente.
+5. **Borrar `/prueba-conexion`**, que era temporal y sigue publicada.
+6. **Borrar una visita debería borrar sus fotos.** Se decidió NO hacerlo
+   mientras el borrado sea manual y de pruebas (30 ago). Sigue en pie.
+7. **Mover el proyecto fuera de OneDrive.**
+8. **Fase 2:** Supabase Auth (que **sustituye** al PIN, no convive con él), RLS
+   (`9999_rls_fase2.sql.txt`, ya listo y sin aplicar), formatos configurables
+   desde UI, reportes por cliente, facturación.
 
 ### Costos que hay que vigilar
-- **Storage:** ~380 KB por visita (2 fotos WebP). El plan gratuito da 1 GB ≈ **2,600
-  visitas**. Con 3 agentes a 20 visitas diarias, ~2 meses. La salida barata es
-  Cloudflare R2, que no cobra egress.
-- **Pausado por inactividad:** el proyecto de Supabase se duerme a los 7 días sin
-  actividad. Mientras los agentes capturen a diario no aplica; si paran, sí.
+- **Storage:** ~380 KB por visita. El plan gratuito da 1 GB; con el ritmo real
+  (7.7 visitas/día) el margen es de casi un año. No urge mover nada a R2.
+- **Catálogo:** 86 KB por refresco en el teléfono de Lalo. Si un cliente llega
+  con miles de sucursales, habrá que traer solo su zona.
+- **Pausado por inactividad:** Supabase duerme el proyecto a los 7 días sin
+  actividad. Mientras capturen a diario, no aplica.

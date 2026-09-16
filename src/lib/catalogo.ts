@@ -11,6 +11,7 @@
 // sus tiendas y poder validar su PIN. Cuando hay red, el cache se refresca solo.
 
 import { supabase } from "../db/supabase";
+import { ordenarPorCercania } from "./validacion";
 import * as cache from "./catalogo-cache";
 import type { Agente, Asignacion, Cliente, Marca, Cadena, Tienda } from "./tipos";
 
@@ -185,24 +186,39 @@ function norm(s: string): string {
 
 // Búsqueda de tiendas por nombre o clave de sucursal, sobre el catálogo local:
 // instantánea y funciona sin señal.
+/**
+ * Busca tiendas del cliente, ya filtradas por lo que el agente tiene asignado.
+ *
+ * `cerca` (la lectura del GPS de la captura) ordena de más cerca a más lejos
+ * ANTES de cortar a `limite`. No es un adorno: con el padrón nacional de
+ * Walmart / Bodega Aurrerá el catálogo pasó de 123 a 960 sucursales, y sin esto
+ * la lista vacía enseña las primeras 20 del alfabeto —Aguascalientes— a un
+ * agente que está parado en Iztapalapa. Con la coordenada, lo primero que ve es
+ * la tienda donde está.
+ *
+ * Sin GPS todavía (los primeros segundos de la pantalla) se conserva el orden
+ * alfabético: es peor no mostrar nada.
+ */
 export async function buscarTiendas(
   clienteId: string,
   texto: string,
   limite = 20,
   agente?: Agente,
-  marcaId?: string
+  marcaId?: string,
+  cerca?: { lat: number; lng: number } | null
 ): Promise<Tienda[]> {
   const todas = await listarTiendas(clienteId, agente, marcaId);
   const t = norm(texto);
-  if (!t) return todas.slice(0, limite);
-  return todas
-    .filter(
-      (x) =>
-        norm(x.nombre ?? "").includes(t) ||
-        norm(x.clave_sucursal).includes(t) ||
-        norm(x.cadena_nombre ?? "").includes(t)
-    )
-    .slice(0, limite);
+  const coinciden = !t
+    ? todas
+    : todas.filter(
+        (x) =>
+          norm(x.nombre ?? "").includes(t) ||
+          norm(x.clave_sucursal).includes(t) ||
+          norm(x.cadena_nombre ?? "").includes(t)
+      );
+  const ordenadas = cerca ? ordenarPorCercania(coinciden, cerca) : coinciden;
+  return ordenadas.slice(0, limite);
 }
 
 // Agentes que pueden aparecer en las visitas de UN cliente, para el filtro del

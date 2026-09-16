@@ -6,7 +6,11 @@
 // comprobaciones verifican que el resultado sea "sin-referencia" y NO "ok".
 
 export async function correr(
-  { validar, puntoDeReferencia, metrosEntre, aRevisar, lapso, LIMITE_DISTANCIA_M, LIMITE_KMH },
+  {
+    validar, puntoDeReferencia, metrosEntre, aRevisar, lapso,
+    ordenarPorCercania, distanciaCorta, fueraDeRango, metrosALaTienda,
+    LIMITE_DISTANCIA_M, LIMITE_CAPTURA_M, LIMITE_KMH,
+  },
   check
 ) {
   // Sanborns Galerías Insurgentes, coordenadas reales del piloto.
@@ -157,4 +161,83 @@ export async function correr(
     ...ctxBase, referencia: r2, otrasDelDia: 1,
   });
   check(aRevisar(sucia) === 4, "se cuentan todas las observaciones, no solo la primera");
+
+  // ---- tiendas cercanas primero ----
+  //
+  // Lo que se protege aquí: con 960 sucursales de todo el país, la lista que ve
+  // el agente al abrir la captura tiene que empezar por donde está parado. Y lo
+  // que NO debe pasar: que una tienda sin coordenada desaparezca de la lista.
+  const enIztapalapa = { lat: 19.3552, lng: -99.1039 };   // BA IZTAPALAPA, real
+  const tiendas = [
+    { clave: "58", latitud: 21.841501, longitud: -102.322313 },   // Aguascalientes
+    { clave: "3764", latitud: 19.355033, longitud: -99.103871 },  // enfrente
+    { clave: "sinpunto", latitud: null, longitud: null },
+    { clave: "3799", latitud: 19.346293, longitud: -99.069049 },  // a ~4 km
+  ];
+  const cerca = ordenarPorCercania(tiendas, enIztapalapa);
+  check(cerca[0].clave === "3764", "la tienda donde está parado el agente sale primero");
+  check(cerca[1].clave === "3799", "luego la de al lado, no la del otro extremo del país");
+  check(cerca[cerca.length - 1].clave === "sinpunto",
+    "la tienda sin coordenada se va al final, pero NO se pierde de la lista");
+  check(cerca.length === tiendas.length, "ordenar no puede desaparecer tiendas");
+  check(tiendas[0].clave === "58", "se devuelve un arreglo nuevo: el original no se toca");
+
+  // Empates y lista vacía: no truena ni inventa orden.
+  check(ordenarPorCercania([], enIztapalapa).length === 0, "una lista vacía se ordena sin reventar");
+  const soloSinPunto = ordenarPorCercania(
+    [{ clave: "a", latitud: null, longitud: null }, { clave: "b", latitud: null, longitud: null }],
+    enIztapalapa
+  );
+  check(soloSinPunto.map((x) => x.clave).join("") === "ab",
+    "sin ninguna coordenada se conserva el orden original (alfabético del catálogo)");
+
+  // ---- la distancia en palabras ----
+  //
+  // Redondear a decenas debajo del kilómetro no es cosmético: el GPS del
+  // teléfono trae ±10 m, así que "a 47 m" le promete al agente una precisión
+  // que la lectura no tiene.
+  check(distanciaCorta(47) === "50 m", "debajo del kilómetro se redondea a decenas");
+  check(distanciaCorta(1240) === "1.2 km", "de 1 a 10 km, un decimal");
+  check(distanciaCorta(57252) === "57 km", "arriba de 10 km, kilómetros enteros");
+  check(distanciaCorta(4) === "0 m", "estar encima de la tienda no se convierte en un número raro");
+
+  // ---- el candado de captura por distancia ----
+  //
+  // Lo que se protege: que no se pueda registrar una visita desde lejos, y —más
+  // importante— que el candado NUNCA se dispare por falta de datos. Un bloqueo
+  // que salta sin poder medir deja a un agente parado en la tienda sin capturar,
+  // y eso contradice la regla de no perder evidencia.
+  const tienda = { latitud: 19.355033, longitud: -99.103871 };  // BA IZTAPALAPA
+  const enLaTienda = { lat: 19.35505, lng: -99.10390 };
+
+  check(LIMITE_CAPTURA_M === 300, "el límite de captura es de 300 m");
+  check(fueraDeRango(enLaTienda, tienda) === null, "parado en la tienda se puede guardar");
+
+  // A 3 km: la visita de Tulyehualco del 14 sep, el único caso real que el
+  // candado habría detenido de las 96 capturadas.
+  const aTresKm = { lat: 19.3274558, lng: -99.0981188 };
+  const metrosLejos = fueraDeRango(aTresKm, { latitud: 19.315415, longitud: -99.072407 });
+  check(metrosLejos !== null && Math.round(metrosLejos / 100) * 100 === 3000, "a 3 km NO se puede guardar");
+
+  // 155 m: visita real de Lalo del 9 sep, con mala lectura bajo techo. Con un
+  // límite de 150 m se habría perdido; con 300 pasa, que es justo por lo que se
+  // eligió 300.
+  const a155 = { lat: 19.355033 + 155 / 111320, lng: -99.103871 };
+  check(fueraDeRango(a155, tienda) === null, "a 155 m sí se puede guardar: era una visita real");
+
+  // El borde, explícito: 300 m exactos no bloquea; lo hace lo que pasa de ahí.
+  const a300 = { lat: 19.355033 + 300 / 111320, lng: -99.103871 };
+  check(fueraDeRango(a300, tienda) === null, "justo en el límite todavía se guarda");
+  const a320 = { lat: 19.355033 + 320 / 111320, lng: -99.103871 };
+  check(fueraDeRango(a320, tienda) !== null, "pasando el límite, ya no");
+
+  // Y lo que NO debe bloquear nunca.
+  check(fueraDeRango(aTresKm, { latitud: null, longitud: null }) === null,
+    "una tienda sin coordenada en el catálogo NO bloquea: no hay contra qué medir");
+  check(fueraDeRango(null, tienda) === null,
+    "sin lectura de GPS tampoco bloquea: de eso se encarga la ubicación obligatoria");
+  check(fueraDeRango(aTresKm, null) === null, "sin tienda elegida no hay nada que medir");
+  check(metrosALaTienda(enLaTienda, tienda) < 10, "la distancia a la tienda se mide de verdad");
+  check(metrosALaTienda(enLaTienda, { latitud: null, longitud: null }) === null,
+    "sin punto de la tienda, la distancia es null y no cero: cero sería mentira");
 }

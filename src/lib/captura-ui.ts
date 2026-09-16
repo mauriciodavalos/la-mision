@@ -37,6 +37,7 @@ import {
 } from "./avisos";
 import type { DetalleCola } from "./sync";
 import { buscarTiendas, listarMarcas, listarTiendas } from "./catalogo";
+import { distanciaCorta, fueraDeRango, metrosEntre } from "./validacion";
 import * as cola from "./cola";
 import { iniciarSync, sincronizar } from "./sync";
 import { asegurarIdentidad, type Contexto } from "./identidad-ui";
@@ -486,6 +487,11 @@ function selectorHTML(id: string, etiqueta: string, opciones: [string, string][]
 
 // ---- tienda ----
 let debounceTienda: number | undefined;
+// La primera lectura de GPS llega segundos DESPUÉS de que se pinta la lista de
+// tiendas. Sin esto, el agente se queda viendo el orden alfabético aunque la
+// ubicación ya se consiguió. Se hace una sola vez y solo si no ha escrito ni
+// elegido nada: reacomodarle la lista debajo del dedo sería peor.
+let tiendasReordenadas = false;
 function renderTienda() {
   const cont = $("#bloque-tienda");
   if (!cont) return;
@@ -522,25 +528,42 @@ async function buscarYRender(texto: string) {
   const cont = $("#resultados-tienda");
   if (!cont || !estado.cliente) return;
   try {
-    // Solo las tiendas de las cadenas asignadas al agente para esta marca.
+    // Solo las tiendas de las cadenas asignadas al agente para esta marca, y
+    // con la ubicación ya leída, las más cercanas primero: el catálogo de
+    // Walmart / Bodega Aurrerá trae 960 sucursales de todo el país y sin esto la
+    // primera pantalla no tiene nada que ver con dónde está parado el agente.
+    const desde = estado.gps ? { lat: estado.gps.lat, lng: estado.gps.lng } : null;
     const tiendas = await buscarTiendas(
       estado.cliente.id,
       texto,
       20,
       estado.agente ?? undefined,
-      estado.marca?.id
+      estado.marca?.id,
+      desde
     );
     if (tiendas.length === 0) {
       cont.innerHTML = `<div style="padding:14px 12px;font-size:13px;color:#5C6660">Sin coincidencias entre las tiendas que tienes asignadas para esta marca.</div>`;
       return;
     }
     cont.innerHTML = tiendas
-      .map(
-        (t) => `<button class="bs-result" data-id="${esc(t.id)}">
+      .map((t) => {
+        // La distancia se enseña solo si hay de dónde sacarla. Dos sucursales de
+        // nombre parecido ya provocaron una captura en la tienda equivocada
+        // (1075 vs 1006, a 8 m); con el punto del catálogo, el renglón dice cuál
+        // de las dos es la que el agente tiene enfrente.
+        let lejos = "";
+        if (desde && t.latitud != null && t.longitud != null) {
+          const m = metrosEntre(desde.lat, desde.lng, t.latitud, t.longitud);
+          // Debajo de 50 m no se pone un número: el GPS del teléfono trae ±10 m
+          // y "a 0 m" se lee como un dato roto. Es además el renglón que el
+          // agente va a tocar casi siempre.
+          lejos = m < 50 ? " · aquí mismo" : " · a " + distanciaCorta(m);
+        }
+        return `<button class="bs-result" data-id="${esc(t.id)}">
           <div>${esc(t.nombre ?? "(sin nombre)")}</div>
-          <div class="bs-result-n">No. ${esc(t.clave_sucursal)}${t.cadena_nombre ? " · " + esc(t.cadena_nombre) : ""}</div>
-        </button>`
-      )
+          <div class="bs-result-n">No. ${esc(t.clave_sucursal)}${t.cadena_nombre ? " · " + esc(t.cadena_nombre) : ""}${lejos}</div>
+        </button>`;
+      })
       .join("");
     cont.querySelectorAll<HTMLButtonElement>(".bs-result").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -761,6 +784,7 @@ async function refrescarGps() {
   }
   renderGps();
   actualizarValidacion();
+  reordenarTiendasConGps();
   avisarSiFaltaPermiso();
 }
 
@@ -788,6 +812,7 @@ function arrancarSeguimientoGps() {
       estado.gpsMotivo = null;
       renderGps();
       actualizarValidacion();
+      reordenarTiendasConGps();
     },
     (m) => {
       // Solo se reporta si todavía no hay nada: un error del watch no debe
@@ -800,6 +825,14 @@ function arrancarSeguimientoGps() {
       }
     }
   );
+}
+
+function reordenarTiendasConGps() {
+  if (tiendasReordenadas || !estado.gps || estado.tienda) return;
+  const input = $("#buscar-tienda") as HTMLInputElement | null;
+  if (!input || input.value.trim() !== "") return;
+  tiendasReordenadas = true;
+  void buscarYRender("");
 }
 
 function renderGps() {
@@ -859,6 +892,48 @@ function faltantes(): string[] {
   return f;
 }
 
+// Metros de más cuando el agente está demasiado lejos de la sucursal que eligió,
+// o null si se puede guardar. Se consulta en dos lados —el aviso de abajo del
+// botón y el propio guardar()— y tiene que dar lo mismo en los dos.
+//
+// Sin GPS todavía, o con una tienda sin coordenada en el catálogo, devuelve null:
+// no se bloquea por lo que no se puede medir. De la ubicación faltante ya se
+// encarga faltantes(), que es donde va ese reclamo.
+function lejosDeLaTienda(): number | null {
+  return fueraDeRango(
+    estado.gps ? { lat: estado.gps.lat, lng: estado.gps.lng } : null,
+    estado.tienda
+  );
+}
+
+// El aviso de estar lejos, con lo que de verdad sirve para resolverlo. Pide
+// conexión primero porque bajo techo el GPS solo puede tardar minutos o no fijar
+// nunca: con datos o wifi el teléfono se ubica por las redes cercanas y la
+// lectura mejora en segundos.
+async function popupLejos(metros: number) {
+  abrirModal({
+    titulo: "Estás lejos de la tienda",
+    cuerpo: `Tu ubicación está a ${distanciaCorta(metros)} de ${estado.tienda?.nombre ?? "la sucursal"}. El registro se guarda estando en la tienda.`,
+    pasos: [
+      "Enciende los datos o el wifi: con conexión el teléfono se ubica mucho mejor adentro de la tienda.",
+      "Toca «Actualizar ubicación» y espera unos segundos.",
+      "Si sigue lejos, revisa que la sucursal elegida sea la correcta: la lista las ordena por cercanía.",
+    ],
+    tono: "alerta",
+    acciones: [
+      {
+        texto: "Actualizar ubicación",
+        cierra: false,
+        alTocar: async () => {
+          await refrescarGps();
+          arrancarSeguimientoGps();
+        },
+      },
+      { texto: "Entendido", principal: true },
+    ],
+  });
+}
+
 function actualizarValidacion() {
   const f = faltantes();
   const btn = $("#btn-guardar") as HTMLButtonElement | null;
@@ -872,9 +947,17 @@ function actualizarValidacion() {
   // Se fuerza `disabled = false` a propósito, aunque el HTML ya no lo ponga:
   // quitar la línea que lo habilitaba sin quitar el atributo del marcado dejó
   // el botón muerto en producción (1 sep). Que quede explícito aquí.
+  const lejos = lejosDeLaTienda();
   btn.disabled = false;
-  btn.classList.toggle("is-incompleto", f.length > 0);
-  if (f.length > 0) {
+  btn.classList.toggle("is-incompleto", f.length > 0 || lejos != null);
+  // La distancia gana sobre "Falta …" aunque falten fotos, y ese orden importa:
+  // es lo único de esta lista que no se arregla llenando el formulario —hay que
+  // moverse o cambiar de sucursal—, y es lo más caro de descubrir después de
+  // haber tomado las dos fotos.
+  if (lejos != null) {
+    msg.style.color = "#C4462B";
+    msg.textContent = `Estás a ${distanciaCorta(lejos)} de la tienda. No se puede guardar desde aquí.`;
+  } else if (f.length > 0) {
     msg.style.color = "";
     msg.textContent = "Falta " + f.join(" · ");
   } else {
@@ -1025,6 +1108,16 @@ async function guardar() {
     }
     return;
   }
+
+  // Candado duro por distancia. Va DESPUÉS de faltantes() a propósito: sin tienda
+  // elegida o sin ubicación no hay nada que medir, y ese reclamo ya lo dio el
+  // paso anterior con sus propias instrucciones.
+  const lejos = lejosDeLaTienda();
+  if (lejos != null) {
+    await popupLejos(lejos);
+    return;
+  }
+
   const m = estado.marca!;
   const t = estado.tienda!;
   const ahora = new Date().toISOString();
@@ -1157,6 +1250,9 @@ function limpiarFormulario() {
   estado.erroresFoto = {};
   // Empieza otra captura: si el permiso sigue bloqueado, vuelve a avisarse.
   avisoPermisoDado = false;
+  // La siguiente captura vuelve a ordenar por la ubicación de ese momento: el
+  // agente ya se movió a otra tienda.
+  tiendasReordenadas = false;
 }
 
 // ---- borrador: la captura a medio hacer no se pierde ----

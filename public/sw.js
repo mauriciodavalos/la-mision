@@ -15,6 +15,11 @@
 //
 // Costo: baja el egress. El shell deja de descargarse en cada visita.
 
+// v7 (15 sep 2026): padrón nacional de Walmart / Bodega Aurrerá — el catálogo
+// pasó de 123 a 960 sucursales en dos cadenas. El buscador de tiendas ordena por
+// cercanía con la lectura del GPS, así que el teléfono TIENE que tomar el bundle
+// nuevo: con el viejo, la primera pantalla le ofrece al agente 20 tiendas del
+// otro lado del país.
 // v6 (12 sep 2026): favicon.svg y favicon.ico propios. El .ico que traía el
 // repo era el de Astro —un PNG de 32 px con la extensión cambiada— y el .svg,
 // un calco en negro plano. Los PNG de 32 y 48 cambiaron de contenido con el
@@ -32,7 +37,7 @@
 // v2 (31 ago 2026): ubicación obligatoria, compresión que no revienta la memoria
 // del teléfono y borrador de la captura. Subir la versión es lo que hace que un
 // teléfono con la app instalada tome el bundle nuevo en vez del cacheado.
-const VERSION = "v6";
+const VERSION = "v7";
 const CACHE = `lamision-shell-${VERSION}`;
 
 // Lo mínimo para arrancar. Los assets con hash (/_astro/*) se cachean solos al

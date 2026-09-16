@@ -32,3 +32,6 @@ supabase/.branches/
 # El repo es publico: los datos operativos viven en la base, no aqui.
 *.csv
 !ejemplo*.csv
+# Mismo motivo: el padron de tiendas llega en Excel, no en CSV.
+*.xlsx
+*.xls
